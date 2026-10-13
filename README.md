@@ -1,7 +1,30 @@
 # donna-iro
 
-「どんな色がすき？」と呼びかけ、子どもが叫んだ色名を聞き取って、その色の続きが流れる遊び。
-テレビに色を映しながら鳴らす。対象は2歳児。
+テレビの前で遊ぶ、2歳児向けの声の遊びを並べたもの。起動するとメニューが出て、
+遊ぶものをリモコンで選ぶ。
+
+| 遊び | 中身 |
+| --- | --- |
+| どんないろがすき？（`donna-iro`） | 「どんな色がすき？」と呼びかけ、子どもが叫んだ色名を聞き取って、その色の続きが流れる。テレビに色を映しながら鳴らす |
+
+```
+メニュー ──決定──→ 遊ぶ ──終わる / 戻る──→ もう1回？
+   ↑                 ↑                       │
+   │                 └───────決定────────────┤
+   └─────────────────────戻る────────────────┘
+```
+
+| 操作 | リモコン | キーボード | マウス |
+| --- | --- | --- | --- |
+| 選ぶ | 十字キー | 矢印 / 数字 | 札を押す |
+| 決定・もう1回 | 決定 | Enter / Space | 左クリック（「もう1回」はどこでも） |
+| 戻る | 戻る | Backspace | 右クリック |
+
+「戻る」は遊びの途中なら歌を止めて「もう1回」の画面へ、「もう1回」の画面なら
+メニューへ。**遊んでいる最中の十字キーと決定では何も起きない。** 押し間違いで
+歌を切らない。
+
+### どんないろがすき？の進行
 
 ```
 intro
@@ -17,8 +40,7 @@ intro
      ↓「ぜんぶ！」
    finale               転調 → ぜんぶの節 → エンディング（色がシャッフル）
      ↓
-   もう1回？             操作を待つ。押されたら intro へ戻り、
-                         何もされなければ終わり
+   もう1回？             メニューの側で訊く
 ```
 
 ## 準備
@@ -27,7 +49,7 @@ intro
 git clone --recursive git@github.com:mpyw/donna-iro.git
 cd donna-iro
 mise install                # cmake と git-lfs（mise.toml）
-git -C assets lfs pull      # 音源を取る
+git -C games/donna-iro/assets lfs pull   # 音源を取る
 tools/fetch-model.sh        # whisper のモデルを取る（base・141MB）
 cargo build --release
 ```
@@ -42,32 +64,39 @@ cargo build --release
 では宣言できない。**足りないものは `tools/check.sh` が冒頭で名前を出して
 止める。** `mise.toml` を依存の全部だと思って読まないこと。
 
-つくよみちゃんの音源が `assets/` に揃うまでは、確認用の合成音
-（`assets/reference/`）に自動で落ちる。音源を置いた時点で、何もしなくても
+素材は遊びごとに `games/<name>/assets/` に置く。どんないろがすき？の音源は
+つくよみちゃんの音源で、`games/donna-iro/assets/` に揃うまでは確認用の合成音
+（`games/donna-iro/assets/reference/`）に自動で落ちる。音源を置いた時点で、何もしなくても
 そちらに切り替わる。
 
 ### 実行時の切り替え
 
 | | |
 | --- | --- |
-| `--terminal` | ウィンドウを使わず色名だけ出す |
+| `--terminal` | ウィンドウを使わず文字だけ出す |
 | `--keyboard` | マイクの代わりに手打ち |
-| `--once` | フィナーレで終わる。「もう1回」を待たない |
+| `--game <name>` | メニューを飛ばしてその遊びから始める（例: `donna-iro`） |
+| `--once` | 1回遊んだら終わる。「もう1回」もメニューも出さない |
 | `--config <path>` | 別の設定ファイルを読む（既定はカレントの `config.toml`） |
 | `--help` | 使い方 |
 
-知らない引数と、値の無い `--config` はエラーで止まる。`--config` に指定した
-ファイルが無いときも同じ。**指定したのに効いていない、が一番たちが悪い。**
+知らない引数、値の無い `--config` / `--game`、知らない遊びの名前はエラーで
+止まる。`--config` に指定したファイルが無いときも同じ。**指定したのに効いて
+いない、が一番たちが悪い。**
 
 つまみは全部 `config.toml` にある。**同じ項目は環境変数でも上書きでき、名前は
 キーの位置から機械的に決まる。** 接頭辞は `DONNA_IRO_`、節とキーの区切りは
 `__`（2本）。キー名自体に `_` が入るので、節の区切りは別の記号にしてある。
 
 ```sh
-DONNA_IRO_RECOGNIZE__AUDIO_CTX=512 cargo run           # recognize.audio_ctx
-DONNA_IRO_LISTEN__THRESHOLD=0.02 cargo run             # listen.threshold
-DONNA_IRO_PATHS__MODEL=models/ggml-tiny.bin cargo run  # paths.model
+DONNA_IRO_RECOGNIZE__AUDIO_CTX=512 cargo run                # recognize.audio_ctx
+DONNA_IRO_LISTEN__THRESHOLD=0.02 cargo run                  # listen.threshold
+DONNA_IRO_PATHS__MODEL=models/ggml-tiny.bin cargo run       # paths.model
+DONNA_IRO_GAMES__DONNA_IRO__INSERT_EVERY=2 cargo run        # games.donna_iro.insert_every
 ```
+
+遊びごとのつまみは `[games.<name>]` の節にある。節の名前は遊びの名前の `-` を
+`_` にしたもの（環境変数に `-` は使えない）。
 
 何をいじれるかは `config.toml` を見ること。全項目にコメントと、対応する
 環境変数名が書いてある。
@@ -81,11 +110,11 @@ tools/bundle-mac.sh     # target/donna-iro.app
 Metal を有効にするので認識が CPU より速い。音源とモデルは埋め込む
 （`.app` は CWD が `/` になるため、相対パスでは読めない）。
 
-**本番音源が無ければ確認用の合成音で組む。** 実行時は `assets/` が欠けて
-いれば `assets/reference/` に落ちるが、`include_bytes!` はファイルの有無を
+**本番音源が無ければ確認用の合成音で組む。** 実行時は `games/donna-iro/assets/` が欠けて
+いれば `reference/` に落ちるが、`include_bytes!` はファイルの有無を
 見られないので、埋め込みでは同じ手が使えない。スクリプトが見て
-`embed-reference` に切り替える。`assets/` へコピーする手もあるが、
-あそこは private サブモジュールなので汚したくない。
+`embed-reference` に切り替える。`reference/` を `assets/` へコピーする手も
+あるが、あそこは private サブモジュールなので汚したくない。
 
 `Info.plist` にマイクの用途を書いてあるので、初回に許可を聞かれる。
 
@@ -115,8 +144,9 @@ Raspberry Pi OS のデスクトップ版に既に入っている。足りなけ�
 141MB のモデルを焼き込む理由が無い。差し替えも rsync だけで済む。埋め込みが
 要るのは CWD が `/` になる macOS の `.app` のほう。
 
-**音源とモデルは手元から送る。** `assets/` は private サブモジュールなので、
+**音源とモデルは手元から送る。** `games/donna-iro/assets/` は private サブモジュールなので、
 Pi に鍵を置いて `known_hosts` を通すまで Pi 側では clone できない。
+Pi 側にも手元と同じ並び（`~/donna-iro/games/donna-iro/assets/`）で置く。
 `models/*.bin` は全部送るので、`tiny` に落として速さを比べるのもそのままできる。
 
 **OS 側の設定も一緒に配る**（`pi/`）。音量つまみと全画面のルールは
@@ -129,8 +159,8 @@ Pi に鍵を置いて `known_hosts` を通すまで Pi 側では clone できな
 | フィーチャー | |
 | --- | --- |
 | `whisper` | 音声認識。外すとキーボード入力のみ（ビルドが数十秒で済む） |
-| `window` | ウィンドウ描画。外すとターミナルに色名だけ。文字描画（`fontdue`）も付いてくる |
-| `embed-audio` | 音源をバイナリに埋め込む（`assets/*.wav` が揃っている必要がある） |
+| `window` | ウィンドウ描画。外すとターミナルに文字だけ。文字描画（`fontdue`）も付いてくる |
+| `embed-audio` | 音源をバイナリに埋め込む（`games/donna-iro/assets/*.wav` が揃っている必要がある） |
 | `embed-reference` | 本番音源の代わりに確認用の合成音を埋め込む。**実行時のフォールバックは埋め込みに効かない**ので、`.app` を試しに作るときはこちら |
 | `embed-model` | whisper のモデル（base・141MB）も埋め込む |
 | `embed` | `embed-audio` と `embed-model`。**バイナリ1つで完結**する。合成音で組んだ `.app` で 157MB（モデルが 141MB） |
@@ -202,7 +232,7 @@ Pi に鍵を置いて `known_hosts` を通すまで Pi 側では clone できな
 小さいモデルは短い音を渡されるとデコーダが暴走し、**言っていない語を後ろに
 継ぎ足す**（tiny で試したとき、「あお」に対して「あお、おれんじ、あか」）。
 しかも同じ語の繰り返しとは限らない。だから後ろは信用せず、先頭の数区間しか
-見ない（`recognize.head_segments`、既定 2）。
+見ない（`games.donna_iro.head_segments`、既定 2）。
 
 段の優先度を位置より上に置くと、後ろの区間が完全一致しただけで先頭を
 追い越す。先頭が編集距離でしか当たらなくても、先頭を採るべき。
@@ -231,119 +261,114 @@ Pi に鍵を置いて `known_hosts` を通すまで Pi 側では clone できな
 
 ## 構成
 
-**3つの層に分けてある。**
+**ワークスペースを3つに分けてある。**
 
-| | |
-| --- | --- |
-| `app` | 遊びそのもの。**装置にもファイルにも触らない** |
-| `io` | 外の世界。`app` のトレイトの実装 |
-| `config` | 設定。**どちらからでも読んでよい** |
+| クレート | 中身 | 読んでよいもの |
+| --- | --- | --- |
+| `home/` | 起動、メニュー、装置（マイク / whisper / スピーカー / ウィンドウ / リモコン）、設定の読み込み | `kit` と全部の遊び |
+| `kit/` | 遊びと装置の継ぎ目。トレイトと、描く図形だけ | 何も読まない |
+| `games/<name>/` | 遊びそのもの。**装置にもファイルにも触らない** | `kit` だけ |
 
-`app` は何を鳴らすか・何を映すか・聞こえたものをどう解釈するかまでを決めて
-トレイトに渡す。実体は `io` にあり、`main` が繋ぐ。
+遊びは何を鳴らすか・何を映すか・聞こえたものをどう解釈するかまでを決めて、
+`kit` のトレイトに渡す。実体は `home` にあり、メニューから起動するときに
+`kit::Devices` にまとめて貸す。
 
-**`app` から `io` を読んではいけない。** 逆は構わない。この向きが守られて
-いる限り、遊びの側は装置なしで組み立てられる（`app/game.rs` のテストが
-実際にそうしている）。
-
-`config` を第三の層にしてあるのは、遊びの側でも装置の側でも要るため。
-どちらかに寄せると必ずもう一方から手が伸びる。**`load` を呼ぶのは `main`
-だけ**で、`app` が触るのは値と既定値のほう。
+> [!IMPORTANT]
+> **遊びから `home` を読んではいけない。** `home` はメニューに並べるために
+> 遊びを読むので、逆を許すと循環する。依存の向きは Cargo が見張っている。
+> 遊びが装置に手を伸ばすとビルドが通らない。
 
 ```mermaid
 flowchart TD
-    main["main.rs"]
-
-    subgraph app["app — 遊び。装置に触らない"]
-        game["game.rs"]
-        matcher["matcher.rs"]
-        cue["cue.rs"]
-        color["color.rs"]
-        screen["screen.rs"]
-        listener["listener.rs"]
-        control["control.rs"]
-        player["player.rs"]
+    subgraph home["home — 起動・メニュー・装置"]
+        main["main.rs"]
+        menu["menu.rs"]
+        io["io/"]
+        config["config.rs"]
     end
 
-    subgraph io["io — 外の世界"]
-        ioscreen["screen/"]
-        iolistener["listener/"]
-        iocontrol["control/"]
-        ioplayer["player/"]
-        audio["audio/"]
+    subgraph games["games/ — 遊び。装置に触らない"]
+        donna["donna-iro/"]
     end
 
-    config["config.rs"]
+    kit["kit — トレイトと図形"]
 
-    main --> game
-    main --> ioscreen
-    main --> iolistener
-    main --> iocontrol
-    main --> ioplayer
+    main --> menu
+    main --> io
     main --> config
-
-    game --> matcher
-    game --> cue
-    game --> screen
-    game --> listener
-    game --> control
-    game --> player
-
-    matcher --> color
-    cue --> color
-    screen --> color
-    player --> cue
-
-    ioscreen --> screen
-    iolistener --> listener
-    iocontrol --> control
-    ioplayer --> player
-    iolistener --> audio
-    ioplayer --> audio
-
-    game -.-> config
-    audio -.-> config
-    iolistener -.-> config
+    main --> donna
+    config --> donna
+    menu --> kit
+    io --> kit
+    donna --> kit
 
     classDef base fill:#eee,stroke:#999,color:#333;
-    class color,config base;
+    class kit base;
 ```
 
-矢印は `app` の中では下を向き、`io` からは `app` へ向かう。**`app` から
-`io` へ出る矢印は1本も無い。** 点線は `config` への依存。
+**`home` の中でも、`menu` は `io` を読まない。** メニューの進行は装置なしで
+テストしている（`menu.rs`）。遊びの進行も同じ（`games/donna-iro/src/play.rs`）。
 
-### app — 遊び
+### kit — 継ぎ目
+
+| | |
+| --- | --- |
+| `game.rs` | `Game`（メニューに並ぶもの）、`Devices`（貸す装置）、`Ended` |
+| `screen.rs` | `Scene` と `Shape`。描く図形と、ターミナルに出す1行 |
+| `control.rs` | `Control` と `Press`。押されたものをどう受け取るか |
+| `listener.rs` | `Listener`。子どもの答えをどう受け取るか |
+| `player.rs` | `Player` と `Sound`。素材をどう鳴らすか |
+
+画面は図形まで降ろしてある。描き手は丸と角丸と文字を塗るだけで、何の遊びかを
+知らない。
+
+### games/donna-iro — どんないろがすき？
 
 | | |
 | --- | --- |
 | `color.rs` | 色の定義（読み・漢字・RGB・名前）と、子どもの応答 `Answer` |
 | `cue.rs` | 鳴らす素材。文字列ではなく型で指す |
 | `matcher.rs` | 応答の判定 |
-| `game.rs` | 進行 |
-| `screen.rs` | `Frame` と `Screen`。どこに映すか |
-| `listener.rs` | `Listener`。色をどう受け取るか |
-| `control.rs` | `Control`。「もう1回」をどう受け取るか |
-| `player.rs` | `Player`。素材をどう鳴らすか |
+| `play.rs` | 進行。`kit::Game` の実装 |
+| `look.rs` | 映すもの。丸を並べる |
+| `config.rs` | `[games.donna_iro]` の型と検査 |
+| `assets/` | 音源（private サブモジュール） |
 
-### io — 外の世界
+### home — 起動・メニュー・装置
 
 | | |
 | --- | --- |
-| `screen/terminal.rs` | 色名を出すだけ |
-| `screen/window.rs` | ウィンドウ描画。丸と「もう1回」のボタン |
-| `listener/keyboard.rs` | 手打ち |
-| `listener/mic.rs` | マイクと whisper |
-| `control/channel.rs` | ウィンドウ / CEC |
-| `control/stdin.rs` | ターミナル |
-| `control/never.rs` | `--once` |
-| `player/speakers.rs` | rodio で鳴らす |
-| `audio/assets.rs` | 素材の在処。ファイルか、埋め込みか |
-| `audio/clip.rs` | 復号済みの音。長さと末尾の無音を測る |
-| `audio/ears.rs` | cpal で録る。開きっぱなしにして切り出す |
+| `main.rs` | 引数、並べる遊びの一覧（`catalog`）、装置の組み立て |
+| `menu.rs` | メニューと「もう1回」 |
+| `config.rs` | 設定の読み込み。遊びの節を抱える |
+| `io/screen/terminal.rs` | 文字を出すだけ |
+| `io/screen/window.rs` | ウィンドウ描画。図形を塗る |
+| `io/listener/keyboard.rs` | 手打ち |
+| `io/listener/mic.rs` | マイクと whisper |
+| `io/control/channel.rs` | ウィンドウ / CEC |
+| `io/control/cec.rs` | テレビのリモコン（evdev を直に読む） |
+| `io/control/stdin.rs` | ターミナル |
+| `io/player/speakers.rs` | rodio で鳴らす |
+| `io/audio/assets.rs` | 素材の在処。ファイルか、埋め込みか |
+| `io/audio/clip.rs` | 復号済みの音。長さと末尾の無音を測る |
+| `io/audio/ears.rs` | cpal で録る。開きっぱなしにして切り出す |
+| `fonts/` | 画面に出す字だけのサブセットフォント |
 
 macOS ではウィンドウをメインスレッドに置く必要があり、`cpal::Stream` も
 `rodio::OutputStream` も `!Send` なので、**ゲーム側をワーカースレッドに出して
 メインスレッドは描画に専念**する。再生や認識でウィンドウが固まらない。
+
+### 遊びを足す
+
+| 場所 | すること |
+| --- | --- |
+| `games/<name>/` | クレートを作り、`kit::Game` を実装する。素材は `assets/` に置く |
+| `Cargo.toml`（ルート） | `[workspace.dependencies]` に足す |
+| `home/Cargo.toml` | `[dependencies]` に足す |
+| `home/src/main.rs` | `catalog` に足す。並べた順にメニューに出る |
+| `home/src/config.rs` | `Games` に節を足す（つまみがあれば） |
+| `home/src/io/audio/assets.rs` | 埋め込みの表に足す（`.app` で使うなら） |
+| `home/fonts/` | 題の字を足してサブセットし直す（足りなければテストが落ちる） |
 
 ## ツール
 
@@ -434,7 +459,10 @@ amixer -c 0 sset PCM 15%       # 効かない（触らないこと）
 ## 音源について
 
 音源は **private サブモジュール** [donna-iro-assets](https://github.com/mpyw/donna-iro-assets)
-に分離し、`assets/` にマウントする。Git LFS で管理。
+に分離し、`games/donna-iro/assets/` にマウントする。Git LFS で管理。
+
+**分けているのはどんないろがすき？の音源だけ。** 素材がフリーの遊びを足すなら、
+`games/<name>/assets/` にそのまま置けばよい。読み方は同じ。
 
 曲は著作物なので、**サブモジュール側は private のまま運用すること。**
 private であれば公衆送信にあたらないため問題ない。本体を public にする場合も

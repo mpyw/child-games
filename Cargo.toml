@@ -1,80 +1,33 @@
-[package]
-name = "donna-iro"
+# 遊びを並べて、テレビの前で選ばせる。
+#
+#   home/               起動・メニュー・装置（マイク / whisper / スピーカー / ウィンドウ / リモコン）
+#   kit/                遊びと装置の継ぎ目。トレイトと、描く図形だけ
+#   games/<name>/       遊びそのもの。kit だけを読む
+#
+# **遊びから home を読んではいけない。** home はメニューに並べるために
+# 遊びを読むので、逆を許すと循環する。共通の口は kit に置く。
+# 遊びの側が装置に触れないのも、この依存の向きがそのまま保証している。
+[workspace]
+resolver = "2"
+members = ["home", "kit", "games/*"]
+# `cargo run` / `cargo build` を素で叩いたときに組むのは home。
+# 遊びは home から依存で引かれるので、ここに並べなくても組まれる。
+default-members = ["home"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 
-[features]
-default = ["whisper", "window"]
-# whisper.cpp のビルドに数分かかるので切り離してある。
-#   cargo run --no-default-features   → キーボード入力（再生の確認用、すぐ起動する）
-#   cargo run                         → マイク入力
-whisper = ["dep:whisper-rs"]
-# ウィンドウに丸を描く。テレビに映すのはこちらが本命。
-# 外すとターミナルに色名を出すだけになる。
-# 「もう1回」のボタンに文字を出すので、フォントの描画もここに付いてくる。
-window = ["dep:minifb", "dep:fontdue"]
-
-# --- バイナリへの埋め込み ---
-#
-# include_bytes! はコンパイル時に実体を要求するので、先に取得しておくこと。
-#   git -C assets lfs pull && tools/fetch-model.sh
-#   cargo build --release --features embed
-#
-# 両方入れると 1ファイル置くだけで、音源もモデルも要らずに動く。
-# モデル（base）だけで 141MB あるので、それなりの大きさにはなる。
-embed-audio = []
-# 本番音源の代わりに確認用の合成音を埋め込む。実行時のフォールバックは
-# 埋め込みに効かない（include_bytes! はファイルの有無を見られない）ので、
-# .app を試しに作りたいときはこちらで切り替える。
-embed-reference = ["embed-audio"]
-embed-model = []
-embed = ["embed-audio", "embed-model"]
-# --- 認識の加速 ---
-#
-# macOS の Metal は下の [target] で既定有効にしてある。指定は要らない。
-#
-# ラズパイ側の選択肢。素の状態でも whisper.cpp が NEON を使うので
-# まずは無指定で測り、足りなければ試す。
-#   sudo apt install libopenblas-dev
-#   cargo build --release --features openblas
-openblas = ["whisper-rs?/openblas"]
-openmp = ["whisper-rs?/openmp"]
-coreml = ["whisper-rs?/coreml"]
-
-[dependencies]
+[workspace.dependencies]
 anyhow = "1"
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 # Color::COUNT を数える（EnumCount）。手で持つと色を足したときに
 # 更新し忘れるので、変種の数は derive に任せる。
 strum = { version = "0.28", features = ["derive"] }
-# 判定候補の並べ替えを const で行う。宣言マクロだけで proc-macro を
-# 使わないので、ビルドは重くならない。
-sort-const = "1.0"
 # const fn の中で for を回す。Iterator::next が const でないため素では
 # 書けない。break / continue も正しく扱う。依存はゼロ。
 const_for = "0.1"
 
-# 録音 / 再生。どちらもクロスプラットフォームで、macOS では CoreAudio、
-# Raspberry Pi では ALSA を使う。ソースは共通のままでよい。
-cpal = "0.15"
-rodio = "0.19"
-minifb = { version = "0.28", optional = true }
-# 文字のラスタライズ。minifb は文字を出せないので、これで自前で描く。
-# 純 Rust で C 依存が無いため、ラズパイでも素直に通る。
-# フォントは fonts/again.ttf（「もう1回」の4文字だけのサブセット、4KB）。
-fontdue = { version = "0.9", optional = true }
-
-# 音声認識: whisper.cpp の Rust バインディング
-whisper-rs = { version = "0.16", optional = true, features = ["log_backend"] }
-# 設定の読み込み。全 OS で使うので、下の macOS 専用の節に置いてはいけない。
-figment = { version = "0.10", features = ["toml", "env"] }
-
-# macOS では Metal を既定で有効にする。GPU を使うので CPU より数倍速い。
-# フィーチャーは同じ依存の宣言どうしで合流するので、ここで足すだけでよい。
-# ラズパイには Metal が無いため、この節ごと効かない。
-# ここは **macOS でしか効かない**。全 OS で使うものを置くと、ラズパイで
-# 「そんな crate は無い」とコンパイルが止まる。実際に figment がここに
-# 紛れていて、macOS では通るので気づけなかった。
-[target.'cfg(target_os = "macos")'.dependencies]
-whisper-rs = { version = "0.16", optional = true, features = ["metal"] }
+kit = { path = "kit" }
+donna-iro = { path = "games/donna-iro" }

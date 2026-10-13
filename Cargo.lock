@@ -304,16 +304,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "const_for",
- "cpal",
- "figment",
- "fontdue",
- "minifb",
+ "kit",
  "rand",
- "rodio",
  "serde",
  "sort-const",
  "strum",
- "whisper-rs",
 ]
 
 [[package]]
@@ -541,6 +536,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "home"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "const_for",
+ "cpal",
+ "donna-iro",
+ "figment",
+ "fontdue",
+ "kit",
+ "minifb",
+ "rodio",
+ "serde",
+ "whisper-rs",
+]
+
+[[package]]
 name = "hound"
 version = "3.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -652,6 +664,13 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "kit"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
 ]
 
 [[package]]

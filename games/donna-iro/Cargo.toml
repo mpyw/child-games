@@ -1,0 +1,17 @@
+[package]
+name = "donna-iro"
+version.workspace = true
+edition.workspace = true
+
+# 装置の crate（cpal / rodio / whisper / minifb）はここに入れない。
+# 鳴らす・映す・聞くは kit のトレイト越しにしか触らない。
+[dependencies]
+kit.workspace = true
+anyhow.workspace = true
+rand.workspace = true
+serde.workspace = true
+strum.workspace = true
+const_for.workspace = true
+# 判定候補の並べ替えを const で行う。宣言マクロだけで proc-macro を
+# 使わないので、ビルドは重くならない。
+sort-const = "1.0"

@@ -17,7 +17,7 @@
 # cmake_minimum_required で死ぬため。上げるときは実際に組んでから。
 cmake = "4"
 
-# assets/ は private サブモジュール + LFS。無いと音源がポインタのまま
+# games/donna-iro/assets/ は private サブモジュール + LFS。無いと音源がポインタのまま
 # 落ちてきて、埋め込みビルドが読めないエラーになる。
 git-lfs = "3"
 

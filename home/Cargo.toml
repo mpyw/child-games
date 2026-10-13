@@ -1,0 +1,81 @@
+[package]
+name = "home"
+version.workspace = true
+edition.workspace = true
+
+# 実行ファイルの名前は据え置く。tools/ の配布スクリプトとラズパイの
+# 起動設定がこの名前で叩いている。リポジトリ名を変えるときに一緒に直す。
+[[bin]]
+name = "donna-iro"
+path = "src/main.rs"
+
+[features]
+default = ["whisper", "window"]
+# whisper.cpp のビルドに数分かかるので切り離してある。
+#   cargo run --no-default-features   → キーボード入力（再生の確認用、すぐ起動する）
+#   cargo run                         → マイク入力
+whisper = ["dep:whisper-rs"]
+# ウィンドウに描く。テレビに映すのはこちらが本命。
+# 外すとターミナルに文字を出すだけになる。
+# メニューと「もう1回」に文字を出すので、フォントの描画もここに付いてくる。
+window = ["dep:minifb", "dep:fontdue"]
+
+# --- バイナリへの埋め込み ---
+#
+# include_bytes! はコンパイル時に実体を要求するので、先に取得しておくこと。
+#   git -C assets lfs pull && tools/fetch-model.sh
+#   cargo build --release --features embed
+#
+# 両方入れると 1ファイル置くだけで、音源もモデルも要らずに動く。
+# モデル（base）だけで 141MB あるので、それなりの大きさにはなる。
+embed-audio = []
+# 本番音源の代わりに確認用の合成音を埋め込む。実行時のフォールバックは
+# 埋め込みに効かない（include_bytes! はファイルの有無を見られない）ので、
+# .app を試しに作りたいときはこちらで切り替える。
+embed-reference = ["embed-audio"]
+embed-model = []
+embed = ["embed-audio", "embed-model"]
+# --- 認識の加速 ---
+#
+# macOS の Metal は下の [target] で既定有効にしてある。指定は要らない。
+#
+# ラズパイ側の選択肢。素の状態でも whisper.cpp が NEON を使うので
+# まずは無指定で測り、足りなければ試す。
+#   sudo apt install libopenblas-dev
+#   cargo build --release --features openblas
+openblas = ["whisper-rs?/openblas"]
+openmp = ["whisper-rs?/openmp"]
+coreml = ["whisper-rs?/coreml"]
+
+[dependencies]
+kit.workspace = true
+# メニューに並べる遊び。足すときはここと main.rs の `catalog` に書く。
+donna-iro.workspace = true
+
+anyhow.workspace = true
+serde.workspace = true
+const_for.workspace = true
+
+# 録音 / 再生。どちらもクロスプラットフォームで、macOS では CoreAudio、
+# Raspberry Pi では ALSA を使う。ソースは共通のままでよい。
+cpal = "0.15"
+rodio = "0.19"
+minifb = { version = "0.28", optional = true }
+# 文字のラスタライズ。minifb は文字を出せないので、これで自前で描く。
+# 純 Rust で C 依存が無いため、ラズパイでも素直に通る。
+# フォントは fonts/ui.ttf（画面に出す字だけのサブセット）。
+fontdue = { version = "0.9", optional = true }
+
+# 音声認識: whisper.cpp の Rust バインディング
+whisper-rs = { version = "0.16", optional = true, features = ["log_backend"] }
+# 設定の読み込み。全 OS で使うので、下の macOS 専用の節に置いてはいけない。
+figment = { version = "0.10", features = ["toml", "env"] }
+
+# macOS では Metal を既定で有効にする。GPU を使うので CPU より数倍速い。
+# フィーチャーは同じ依存の宣言どうしで合流するので、ここで足すだけでよい。
+# ラズパイには Metal が無いため、この節ごと効かない。
+# ここは **macOS でしか効かない**。全 OS で使うものを置くと、ラズパイで
+# 「そんな crate は無い」とコンパイルが止まる。実際に figment がここに
+# 紛れていて、macOS では通るので気づけなかった。
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.16", optional = true, features = ["metal"] }

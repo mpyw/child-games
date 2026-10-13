@@ -117,7 +117,7 @@ fi
 
 # --- 配る ---
 #
-# **Pi から private サブモジュールは取れない。** assets/ は
+# **Pi から private サブモジュールは取れない。** games/donna-iro/assets/ は
 # git@github.com の private リポジトリなので、Pi に鍵を置いて
 # known_hosts を通すまで clone できない。手元から送るほうが早い。
 #
@@ -126,10 +126,11 @@ fi
 echo
 echo "$DEST:$DEST_DIR へ配る"
 
-# **rsync が作るのは行き先の最後の1階層だけ。** assets/reference は2階層
-# 深いので、ここで掘っておかないと "No such file or directory" で落ちる。
+# **rsync が作るのは行き先の最後の1階層だけ。** 素材は遊びごとに
+# games/<name>/assets/reference まで深いので、ここで掘っておかないと
+# "No such file or directory" で落ちる。
 # shellcheck disable=SC2029  # $DEST_DIR は手元で展開して送るのが意図
-ssh "$DEST" "mkdir -p '$DEST_DIR/models' '$DEST_DIR/assets/reference'"
+ssh "$DEST" "mkdir -p '$DEST_DIR/models' '$DEST_DIR/games/donna-iro/assets/reference'"
 
 # 実行時に要る共有ライブラリ。X11 系は minifb が dlopen するので
 # readelf の NEEDED には出ない。ここで名前を出して先に気づく。
@@ -150,15 +151,16 @@ rsync -a config.toml "$DEST:$DEST_DIR/config.toml"
 
 # 本番音源があればそれ、無ければ確認用の合成音。**実行時のフォールバックに
 # 任せる**ので、reference だけ送れば assets/ が空でも合成音で鳴る。
+# 置き場所は手元と同じ並び（games/<name>/assets/）。実行時はそこを読む。
 # _demo-* は通しの確認用で 10MB あるので送らない。
-if ls assets/*.wav >/dev/null 2>&1; then
+if ls games/donna-iro/assets/*.wav >/dev/null 2>&1; then
   echo "  本番音源を送る"
-  rsync -a --exclude='_demo-*' assets/*.wav "$DEST:$DEST_DIR/assets/"
-elif ls assets/reference/*.wav >/dev/null 2>&1; then
+  rsync -a --exclude='_demo-*' games/donna-iro/assets/*.wav "$DEST:$DEST_DIR/games/donna-iro/assets/"
+elif ls games/donna-iro/assets/reference/*.wav >/dev/null 2>&1; then
   echo "  本番音源が無いので確認用の合成音を送る"
-  rsync -a --exclude='_demo-*' assets/reference/ "$DEST:$DEST_DIR/assets/reference/"
+  rsync -a --exclude='_demo-*' games/donna-iro/assets/reference/ "$DEST:$DEST_DIR/games/donna-iro/assets/reference/"
 else
-  echo "⚠ 音源が無い。git -C assets lfs pull を先に。" >&2
+  echo "⚠ 音源が無い。git -C games/donna-iro/assets lfs pull を先に。" >&2
 fi
 
 # モデルは config.toml の paths.model が空なら models/ggml-base.bin。

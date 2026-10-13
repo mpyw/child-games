@@ -1,4 +1,4 @@
-# donna-iro の設定。
+# 設定。装置のつまみと、遊びごとの節（[games.<name>]）。
 #
 # ここに書いてある値がそのまま既定値。消せばコード上の既定に戻る。
 # 各項目は環境変数でも上書きできる。名前はキーの位置から機械的に決まる。
@@ -10,11 +10,12 @@
 #                                         一時的に上書き（ファイルは触らない）
 
 [paths]
-# 音源のディレクトリ。空なら自動で選ぶ。
-# assets/ が揃っていればそれ、なければ assets/reference/（確認用の合成音）。
-# つくよみちゃんの音源を assets/ に置いた時点で自動で切り替わる。
-#   DONNA_IRO_PATHS__ASSETS
-assets = ""
+# 遊びを並べたディレクトリ。空なら games（このリポジトリの並び）。
+# 素材は <games>/<name>/assets/ から読む。揃っていなければ
+# <games>/<name>/assets/reference/（確認用の合成音）に落ちる。
+# つくよみちゃんの音源を games/donna-iro/assets/ に置いた時点で自動で切り替わる。
+#   DONNA_IRO_PATHS__GAMES
+games = ""
 
 # whisper のモデル。空なら models/ggml-base.bin。
 # 埋め込みビルドでも、ここが指定されていればファイルから読む。
@@ -120,6 +121,21 @@ threshold = 0.0
 #   DONNA_IRO_RECOGNIZE__AUDIO_CTX
 audio_ctx = 0
 
+# --- 遊びごとの節 ---
+#
+# 節の名前は遊びの名前の - を _ にしたもの（環境変数に - は使えない）。
+
+[games.donna_iro]
+# どんないろがすき？
+
+# 何周に1回、区切り（ブリッジまたは間奏）を挟むか。
+#   DONNA_IRO_GAMES__DONNA_IRO__INSERT_EVERY
+insert_every = 3
+
+# フィナーレで色を差し替える間隔（ミリ秒）。
+#   DONNA_IRO_GAMES__DONNA_IRO__FLASH_MS
+flash_ms = 500
+
 # 認識結果の先頭いくつの区間を信用するか。
 # tiny は短い音を渡されるとデコーダが暴走し、言っていない語を後ろに
 # 継ぎ足す（「あお」に対して「あお、おれんじ、あか」）。だから後ろは捨てる。
@@ -127,15 +143,6 @@ audio_ctx = 0
 # **フィラーが1枠食う。** 「えー、みどり」のような言い方だと「えー」で
 # 1つ使うので、2 だと色まで届くのがぎりぎりになる。増やすと届きやすく
 # なるが、tiny が後ろに継ぎ足す幻覚も拾いやすくなる。
-#   DONNA_IRO_RECOGNIZE__HEAD_SEGMENTS
+#   DONNA_IRO_GAMES__DONNA_IRO__HEAD_SEGMENTS
 head_segments = 2
 
-
-[game]
-# 何周に1回、区切り（ブリッジまたは間奏）を挟むか。
-#   DONNA_IRO_GAME__INSERT_EVERY
-insert_every = 3
-
-# フィナーレで色を差し替える間隔（ミリ秒）。
-#   DONNA_IRO_GAME__FLASH_MS
-flash_ms = 500
