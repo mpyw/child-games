@@ -1,4 +1,4 @@
 [submodule "assets"]
-	path = assets
+	path = games/donna-iro/assets
 	url = git@github.com:mpyw/donna-iro-assets.git
 	branch = main

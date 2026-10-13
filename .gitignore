@@ -1,4 +1,5 @@
-# 音源は assets/ サブモジュール (private) で管理する。ここには置かない。
+# どんないろがすき の音源は games/donna-iro/assets/ サブモジュール (private) で
+# 管理する。ここには置かない。
 
 # 収録した音声サンプル（子どもの声）
 recordings/

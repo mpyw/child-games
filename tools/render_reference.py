@@ -5,7 +5,7 @@
 編曲した色が音数的に破綻していないか、拍に乗っているかを
 OpenUtau で調声する前に耳で確かめるためのもの。
 
-出力は assets/reference/*.wav（gitignore 済み。再生成できるので）。
+出力は games/donna-iro/assets/reference/*.wav（gitignore 済み。再生成できるので）。
 
     python3 tools/render_reference.py
 """
@@ -17,8 +17,8 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
-SRC = "assets/musicxml"
-OUT = "assets/reference"
+SRC = "games/donna-iro/assets/musicxml"
+OUT = "games/donna-iro/assets/reference"
 SR = 44100
 BPM = 126
 DIV = 12

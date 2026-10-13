@@ -1,0 +1,1896 @@
+//! 認識結果の文字列から応答を判定する。
+//!
+//! **信用できるのは先頭だけ。** tiny は短い音を渡されるとデコーダが
+//! 暴走して、言っていない語を後ろに継ぎ足すことがある。しかも同じ語の
+//! 繰り返しとは限らず、別の色が混ざる。だから後ろは捨てる。
+//!
+//! **位置が最優先。** 先頭の区間から順に見て、当たった時点で決める。
+//!
+//! 段の優先度を位置より上に置くと、後ろの区間が完全一致しただけで
+//! 先頭を追い越してしまう。「みじろ、きいろ」で実際にそうなった。
+//! 先頭は音の近さでしか当たらないが、それでも先頭を採るべき。
+//!
+//! **認識は語を割る**（「ちゃいろ」が「じゃあ、いろ」になった）ので、
+//! 単独と、次の区間と繋げたものを織り交ぜて見る。位置ごとの順は
+//!
+//! 1. 単独の完全一致
+//! 2. 単独の部分一致（長い読みから順に）
+//! 3. 結合の完全一致
+//! 4. 結合の部分一致のうち、**境目をまたぐもの**
+//! 5. 音の近さ。単独と結合を突き合わせて**距離の近いほう**
+//! 6. 単独がどれにも当たらなければ、結合の部分一致と音の近さ
+//!
+//! 3〜5 の位置が要点で、詳しくは `find` の中に書いてある。順番を素直に
+//! 「単独を3段 → 結合を3段」にすると、割れた語の前半がたまたま別の色に
+//! 近いだけで確定してしまう。
+//!
+//! **どの段にも当たらなくても諦めない。** 測った中で一番近いものへ倒す。
+//! 足切りして無反応にし、呼び出し側でランダムな色を鳴らしていた頃より、
+//! こちらのほうが当たる。実機のログでは、段が諦めた場面でも子どもが実際に
+//! 言った色が上位に居た。当てられないときでも、ランダムより悪くはならない。
+//!
+//! ```text
+//! 近さ「んぶ」   ✗ぜんぶ 3 / ✗ぴんく 5 / …   → ぜんぶ（言い切りが2音で許容外）
+//! 近さ「あたん」 ✗あか 5 / ✗あお 7 / …       → あか
+//! 近さ「みよ」   ✗しろ 4 / ✗みどり 5 / …     → しろ
+//! ```
+//!
+//! **`nearest` の許容は残っているが、もう足切りではない。** 「この区間に
+//! 答えがあると言い切れるか」の線で、言い切れないときに次の区間へ譲るために
+//! ある。フィラー（あの・この・その）が先頭に来て本当の答えを押し出すのを
+//! 止めているのはこの線なので、外すと「あの、あか」が あお になる。
+//!
+//! `None` になるのは**音の近さを一度も測っていないとき**だけ（区間が全部
+//! 質問の破片だった、1音しかなかった）。呼び出し側でランダムな色に倒す。
+
+use std::fmt;
+
+use const_for::const_for;
+use sort_const::const_quicksort;
+
+use crate::color::Answer;
+
+/// 質問の歌がマイクに回り込んだぶんを落とす。
+///
+/// 「どんないろがすき」には「いろ」が含まれるので、残したまま判定すると
+/// きいろの読み「いーろ」に化けることがある。長いものから順に削る。
+const PROMPT: &[&str] = &["どんないろがすき", "どんないろ", "どんな"];
+
+/// 質問文そのもの。**区間まるごとがこの一部なら、答えではなく回り込み。**
+///
+/// `PROMPT` を削るだけでは足りない。whisper が「どんな いろ」と空白で
+/// 割って返すと、区切ってから削るので破片の「いろ」が生き残り、音の
+/// 近さで「しろ」に当たる。**しかも位置を最優先するので、後ろに続く
+/// 本当の答えを差し置いて毎回それが鳴る。**
+///
+/// 色の読みはどれもこの文の一部ではないので、丸ごと一致で捨ててよい。
+/// 破れていないことは `no_answer_hides_inside_the_question` で見る。
+const QUESTION: &str = "どんないろがすき";
+
+/// 拗音と長音を落とした骨格。編集距離を測るときだけ使う。
+///
+/// 幼児の発音は「ぜ」が「じぇ」に、「ぶ」が「ば」に寄る。小書き文字と
+/// 長音符が入ると字数がずれて、素の編集距離では届かなくなる。
+/// 落としてから比べると、残るのは子音・母音のずれだけになる。
+///
+/// 読みの側も同じ関数を通すので、「ちゃいろ」が「ちいろ」に潰れても
+/// 両側が揃っていて問題ない。
+fn skeleton(s: &str) -> Vec<char> {
+    s.chars()
+        .filter(|c| {
+            !matches!(
+                c,
+                'ー' | 'ぁ' | 'ぃ' | 'ぅ' | 'ぇ' | 'ぉ' | 'ゃ' | 'ゅ' | 'ょ' | 'ゎ' | 'っ'
+            )
+        })
+        .collect()
+}
+
+/// 漢字表記を持つ応答の数。候補の丈を出すためだけに数える。
+const fn kanji_count() -> usize {
+    let every = Answer::every();
+    let mut n = 0;
+    const_for!(i in 0..Answer::COUNT => {
+        if every[i].kanji().is_some() {
+            n += 1;
+        }
+    });
+    n
+}
+
+/// UTF-8 の文字数。`str::chars` は const で回せないので先頭バイトを数える。
+const fn char_count(s: &str) -> usize {
+    let bytes = s.as_bytes();
+    let mut n = 0;
+    const_for!(i in 0..bytes.len() => {
+        // 継続バイト（10xxxxxx）以外が1文字の先頭。
+        if bytes[i] & 0xC0 != 0x80 {
+            n += 1;
+        }
+    });
+    n
+}
+
+/// 候補の数。読みが全応答ぶん、漢字はある応答のぶんだけ。
+const CANDIDATE_COUNT: usize = Answer::COUNT + kanji_count();
+
+/// 判定の候補。
+///
+/// **`normalize` は通さない。** 語彙の側が正規形で書かれている約束
+/// （`color.rs` を見ること）なので、通しても何も起きない。破れていない
+/// ことは `vocabulary_is_already_normalized` で見ている。
+const CANDIDATES: [(Answer, &str); CANDIDATE_COUNT] = {
+    // 候補の並び順。**同点が出ないところまで見る。**
+    //
+    // 長さの降順が主。短い色名が長い色名に含まれる組（「きみどり」⊃「みどり」）が
+    // あるので、部分一致は長いほうから試さないと取りこぼす。
+    //
+    // 同じ長さなら元の位置の昇順。作る順は「読みを全部 → 漢字を全部」で、
+    // どちらも `Answer::every()` の順なので、これで「読みが漢字より先」と
+    // 「先に宣言した色が先」の両方が決まる。
+    //
+    // ここまで見れば同点が無いので、不安定な並べ替えでよい。
+    const fn before(a: (Answer, &str, usize), b: (Answer, &str, usize)) -> bool {
+        let (la, lb) = (char_count(a.1), char_count(b.1));
+        if la != lb {
+            la > lb
+        } else {
+            a.2 < b.2
+        }
+    }
+
+    let every = Answer::every();
+
+    // 3つ目は作った順。並べ替えの second key に使う。
+    let mut buf = [(Answer::All, "", 0usize); CANDIDATE_COUNT];
+    let mut n = 0;
+    const_for!(i in 0..Answer::COUNT => {
+        buf[n] = (every[i], every[i].reading(), n);
+        n += 1;
+    });
+    const_for!(i in 0..Answer::COUNT => {
+        if let Some(k) = every[i].kanji() {
+            buf[n] = (every[i], k, n);
+            n += 1;
+        }
+    });
+
+    // 配列を渡すと**その場では並べ替えず、並べ替えたものを返す**。
+    // 戻り値を捨てると黙って未整列のまま進むので、必ず受け直すこと。
+    let buf = const_quicksort!(buf, |a, b| before(*a, *b));
+
+    // 並べ終わったら位置は要らない。
+    let mut out = [(Answer::All, ""); CANDIDATE_COUNT];
+    const_for!(i in 0..CANDIDATE_COUNT => {
+        out[i] = (buf[i].0, buf[i].1);
+    });
+    out
+};
+
+/// ログに出す近さの丈。**上位いくつまで見せるか。**
+///
+/// 全部（読みのぶんだけあるので十数件）出すと、1回の応答でログが埋まって
+/// 前後の行が流れる。惜しかったものは上のほうに固まるので、5件で足りる。
+const TOP: usize = 5;
+
+/// 判定の結果と、そこに至るまでに測った音の近さ。
+///
+/// **落選したものまで持って上がる。** 結果だけをログに出しても、選ばれた
+/// 色の隣に何がいたのかが分からない。実機で外したときに知りたいのは
+/// 「どれが惜しかったか」と「なぜそれが落ちたか」のほうで、そこが残らないと
+/// しきい値をどちらへ動かせばいいのか決められない。
+///
+/// **出す・出さないは呼び出し側の仕事。** `find` の中で書くと、変異を
+/// 掛けるテストが数千行のログを吐く。`Display` が体裁だけ持つ。
+pub struct Verdict {
+    /// 段のどれかで決まった応答。**呼び出し側はこれを直接見ない。**
+    ///
+    /// `None` は「言い切れなかった」であって「分からなかった」ではない。
+    /// 実際に返すのは `answer`。
+    decided: Option<Answer>,
+    /// 測った中で一番近いもの。決まらなかったときの倒し先。
+    ///
+    /// **「ぜんぶ」も外さない。** 実機で「んぶ」（＝ぜんぶの言い切り）が
+    /// 2音のため許容の外に落ち、無反応になっていた。事故で終わることは
+    /// あるが、それは「もう1回」で戻せる。終われないほうが困る。
+    closest: Option<Answer>,
+    /// 測った順の近さ。位置ごとに、単独と結合で別々に増える。
+    ///
+    /// **空もありうる。** 完全一致や部分一致（段の1〜4）で決まったときは、
+    /// 音の近さを測るところまで行っていない。
+    rankings: Vec<Ranking>,
+}
+
+impl Verdict {
+    /// 実際に返す応答。**段で決まらなくても諦めない。**
+    ///
+    /// `None` は音の近さを一度も測っていないときだけ。呼び出し側で
+    /// ランダムな色に倒す。
+    pub fn answer(&self) -> Option<Answer> {
+        self.decided.or(self.closest)
+    }
+}
+
+/// ある文字列に対して、候補を近い順に並べたもの。
+struct Ranking {
+    /// 測った文字列。区間そのものか、次の区間と繋げたもの。
+    text: String,
+    /// 近い順。**許容を超えたものも捨てずに入れる。** そこが落選の記録で、
+    /// 段が誰も採らなかったときの倒し先もここから出る。
+    scores: Vec<Score>,
+    /// この文字列で言い切れたもの。`None` なら同点か、どれも遠かった。
+    taken: Option<Answer>,
+}
+
+struct Score {
+    answer: Answer,
+    distance: usize,
+    /// 許容する距離に収まっていたか。超えたものは判定に上がらない。
+    within: bool,
+}
+
+/// ログ1件ぶん。1行目が結果、続く行が測った近さ。
+impl fmt::Display for Verdict {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match (self.decided, self.closest) {
+            (Some(a), _) => write!(f, "判定 {}", a.reading())?,
+            // **倒したことは隠さない。** 言い切って当てたのか、どれも遠い
+            // 中で一番近いものを選んだだけなのかで、次に直すところが変わる。
+            (None, Some(a)) => write!(f, "判定 {}（一番近いものに倒した）", a.reading())?,
+            // 測っていないときだけ。呼び出し側でランダムな色になる。
+            (None, None) => write!(f, "判定 なし")?,
+        }
+        if self.rankings.is_empty() {
+            // **無いことの理由まで書く。** 黙って行が減ると「測ったのに
+            // 全部落ちた」と読めてしまう。測り損ねたのではなく、測る前に
+            // 決まっている。
+            return write!(f, "（音の近さは測っていない）");
+        }
+        for r in &self.rankings {
+            write!(f, "\n    {r}")?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for Ranking {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "近さ「{}」", self.text)?;
+        for (n, s) in self.scores.iter().take(TOP).enumerate() {
+            // 許容を超えたものには印を付ける。**許容は候補の丈で変わるので、
+            // 同じ距離でも印が付くものと付かないものがある。** 数字だけ
+            // 並べると、そこがどうしても読めない。
+            let mark = if s.within { "" } else { "✗" };
+            let sep = if n == 0 { "" } else { " /" };
+            write!(f, "{sep} {mark}{} {}", s.answer.reading(), s.distance)?;
+        }
+        if self.scores.len() > TOP {
+            write!(f, " / …")?;
+        }
+        // **言い切れなかった理由は表から読み取らせない。** 「同点だから」と
+        // 「どれも遠かった」は、直し方が逆方向になる。
+        //
+        // どちらも諦めではない。この行で決まらなければ、次の区間に譲るか、
+        // 最後に一番近いものへ倒す。
+        if self.taken.is_none() {
+            let why = if self.scores.iter().any(|s| s.within) {
+                "同点で決めない"
+            } else {
+                "どれも遠い"
+            };
+            write!(f, "（{why}）")?;
+        }
+        Ok(())
+    }
+}
+
+pub struct Matcher {
+    /// 候補の骨格。編集距離用。並びは `CANDIDATES` と同じ。
+    ///
+    /// `skeleton` が `Vec<char>` を返すので、ここだけは実行時に作る。
+    skeletons: Vec<(Answer, Vec<char>)>,
+    /// 先頭から信用する区間の数。tiny は言っていない語を後ろに継ぎ足す。
+    head: usize,
+}
+
+impl Matcher {
+    pub fn new(head: usize) -> Self {
+        Self {
+            // **骨格は読みだけ。** 漢字は `decompose` できず全文字が
+            // 満額の置換になるので、音の近さの土俵に乗らない。無駄な
+            // 距離計算になるうえ、同点（→ 言い切らない）の芽にもなる。
+            // 漢字は完全一致と部分一致の2段で拾えている。
+            skeletons: CANDIDATES
+                .iter()
+                .filter(|(a, r)| a.kanji() != Some(*r))
+                .map(|(a, r)| (*a, skeleton(r)))
+                .collect(),
+            head: head.max(1),
+        }
+    }
+
+    pub fn find(&self, raw: &str) -> Verdict {
+        let parts = assemble(raw, self.head);
+        // 測った近さの記録。**判定を変えないこと。** ここに溜めるのは
+        // `nearest` が実際に測ったものだけで、ログのために測り直さない。
+        // 測り直すと、ログと判定が別々の道を歩いて食い違う。
+        let mut log: Vec<Ranking> = Vec::new();
+
+        // 段の順は冒頭に書いてある。要点は3〜5の位置。
+        let decided = (0..parts.len()).find_map(|i| {
+            let single = parts[i].as_str();
+            let joined = (parts.len() - i >= 2).then(|| parts[i..i + 2].concat());
+            let joined = joined.as_deref();
+
+            if let Some(a) = self.exact(single).or_else(|| self.substring(single)) {
+                return Some(a);
+            }
+            if let Some(a) = joined.and_then(|j| self.exact(j)) {
+                return Some(a);
+            }
+            // **境目をまたぐ部分一致は、単独の音の近さより先。** またぐ
+            // ということは、そこで割れたのが誤りだったという証拠になる。
+            //
+            //     「むら さきいろ」 むらさき が境目をまたぐ  → むらさき
+            //     「みじろ、きいろ」 きいろ は後ろの区間に収まる → 無視
+            //
+            // 後者を採ると幻覚の継ぎ足しを拾ってしまうので、またぐものだけ。
+            if let Some(a) = joined.and_then(|j| straddling(j, single.len())) {
+                return Some(a);
+            }
+
+            // ここから先は音の近さ。**単独が土俵に乗っているかで分かれる。**
+            match self.nearest(single, &mut log) {
+                // 乗っている。結合と突き合わせて近いほうを採る。**距離その
+                // ものが確からしさ**なので、順番で決めるところではない。
+                // 割れて一音ずれた語は結合が近く、幻覚の継ぎ足しは単独が
+                // 近い。順番を固定すると必ずどちらかを外す。
+                //
+                // 同点なら単独（位置優先に揃える）。ここで結合の部分一致に
+                // 譲らないのも要点で、譲ると継ぎ足しを拾ってしまう。
+                Some((sa, sd)) => Some(match joined.and_then(|j| self.nearest(j, &mut log)) {
+                    Some((ja, jd)) if jd < sd => ja,
+                    _ => sa,
+                }),
+                // 乗っていない。**部分一致のほうが音の近さより確か。**
+                // ただし読みで終わるか、境目を両側2音以上でまたぐときだけ。
+                // 途中で1音ずつまたぐものまで拾うと、フィラーの尻と答えの
+                // 頭が繋がって別の色になる。
+                None => joined
+                    .and_then(ending_with)
+                    .or_else(|| joined.and_then(|j| spanning(j, single.len())))
+                    .or_else(|| {
+                        // 結合の音の近さは最後の手段。**次の区間が単独で
+                        // もっと確かに当たるなら譲る。** 先頭がどの段にも
+                        // 乗らなかった以上、その位置に主張は無い。
+                        //
+                        // 譲るのは負けたときだけ。同点で譲ると、同じ発話が
+                        // 区間の割れ方だけで別の色になる。
+                        let (a, d) = joined.and_then(|j| self.nearest(j, &mut log))?;
+                        match parts.get(i + 1).and_then(|n| self.nearest(n, &mut log)) {
+                            Some((_, next_d)) if next_d < d => None,
+                            _ => Some(a),
+                        }
+                    }),
+            }
+        });
+
+        // 段が誰も言い切れなかったときの倒し先。**測ったもの全部から、
+        // 一番近いものひとつ。** 許容は見ない。ここが足切りを外した本体で、
+        // 無反応（→ ランダムな色）はもう選ばない。
+        //
+        // 各行は距離の昇順に並んでいるので、行の先頭だけ見れば足りる。
+        // `min_by_key` は同点なら先に来たほうを残すので、**同じ距離なら
+        // 先に測った区間**が勝つ。位置を最優先する方針に揃う。
+        //
+        // 段の側の「同点なら決めない」はそのまま残す。あちらは次の区間に
+        // 譲るための線で、譲った先も空振りしたときにここへ落ちてくる。
+        let closest = log
+            .iter()
+            .filter_map(|r| r.scores.first())
+            .min_by_key(|s| s.distance)
+            .map(|s| s.answer);
+
+        Verdict {
+            decided,
+            closest,
+            rankings: log,
+        }
+    }
+
+    fn exact(&self, text: &str) -> Option<Answer> {
+        CANDIDATES.iter().find(|(_, r)| *r == text).map(|(a, _)| *a)
+    }
+
+    fn substring(&self, text: &str) -> Option<Answer> {
+        // **先に出てくるものを採る。** 候補の並びで決めると、同じ長さの
+        // うち先に宣言したほうが常に勝つ。位置を最優先する方針に揃える。
+        // 同じ位置なら長いほう（`CANDIDATES` がその順）。
+        CANDIDATES
+            .iter()
+            .filter_map(|(a, r)| text.find(*r).map(|at| (at, *a)))
+            .min_by_key(|&(at, _)| at)
+            .map(|(_, a)| a)
+    }
+
+    /// 音の近さで**言い切れる**ものを返す。`None` は言い切れなかっただけで、
+    /// 分からなかったということではない。倒し先は `find` が `log` から作る。
+    ///
+    /// **測ったものは `log` に置いていく。** 落選まで残すのがログの用なので、
+    /// 記録は判定の副産物にしてある。呼ばれた回数ぶん増えるので、単独と結合が
+    /// 別の行として並ぶ。
+    fn nearest(&self, text: &str, log: &mut Vec<Ranking>) -> Option<(Answer, usize)> {
+        // 言い切れる編集距離。単位は `substitution` の重みで、4 が1音ぶん。
+        //
+        // **足切りではない。** ここを超えても、どの区間も言い切れなければ
+        // 最後に一番近いものへ倒す（`find` の `closest`）。この線が決めるのは
+        // 「この区間で打ち止めにするか、次の区間に譲るか」だけ。
+        //
+        // **2文字の読みは半音まで。** 2音のうち1音が別物なら「近い」のでは
+        // なく「半分違う」。1音まで許していた頃は、2モーラのフィラー
+        // （あの・この・その）が片端から色になっていた。3文字以上は1音半。
+        //
+        // **「ぜんぶ」も同じ扱い。** ここだけ厳しくしていたが、実際に起きた
+        // のは誤爆ではなく取りこぼしのほうだった。間違って終わっても
+        // 「もう1回」を押せばいい。
+        //
+        // **もう誤爆と取りこぼしのダイヤルではない。** 足切りだった頃は締めると
+        // 実機で出た形（「んけんぶ」）を失ったが、今は倒し先が拾う。測り直すと、
+        // 動くのは段が言い切る数だけで、**実際に鳴るものは変わらない。**
+        //
+        // ```text
+        //    段で「ぜんぶ」と言い切る語   事故で終わる語（倒し先まで）
+        // 6  5件（でんわ/こんぶ/おんぶ/さんぽ/しんぶん）  10件  ← 現状
+        // 5  3件（でんわ/こんぶ/おんぶ）                  10件
+        // 4  1件（こんぶ）                                10件
+        // ```
+        //
+        // 締めても得が無いので動かさない。締めて変わるのは**区間の譲り合い**
+        // だけで、そちらは「あの、あか」のようなフィラー先頭の形に効く。
+        // 動かすなら、その表（`the_cases_that_taught_us_something`）を見ること。
+        const fn allowed(skeleton_len: usize) -> usize {
+            if skeleton_len <= 2 {
+                2
+            } else {
+                6
+            }
+        }
+
+        let chars = skeleton(text);
+        // **1音では土俵に乗らない。** どの読みも骨格で2文字以上あるので、
+        // 1文字が当たったとしてもそれは「近い」のではなく「短すぎて何にでも
+        // 近い」。「えー」が「あお」に化けて、位置優先で後ろの本当の答えを
+        // 押し出していた。
+        //
+        // **ログにも出さない。** 測っていないものを空の表として出すと、
+        // 「候補が全部落ちた」と見分けが付かない。
+        if chars.len() < 2 {
+            return None;
+        }
+        let mut scores: Vec<Score> = Vec::new();
+        for (a, r) in self.skeletons.iter() {
+            let d = levenshtein(&chars, r);
+            // **短いほうで測る。** 入力が2音しかないのに3音の読みへ
+            // 1音半まで許すと、足りないぶんの挿入がただになる。
+            // 「この」が きいろ に当たっていた。
+            //
+            // ただし**入力が候補の頭そのものなら、言い切っただけ**なので
+            // 元の丈で測る。「みず」（みずいろ）「みど」（みどり）は
+            // 2歳児が普通に言う。「この」「あの」はどの読みの頭でも
+            // ないので、フィラーの誤射は戻らない。
+            let truncated = r.starts_with(chars.as_slice());
+            let len = if truncated {
+                r.len()
+            } else {
+                r.len().min(chars.len())
+            };
+            // **許容を超えたものも表に残す。** 判定からは外れるが、
+            // 「あと1つで届いていた」はログで一番知りたいところ。
+            // 落とすのは判定に上げるときだけ。
+            scores.push(Score {
+                answer: *a,
+                distance: d,
+                within: d <= allowed(len),
+            });
+        }
+        scores.sort_by_key(|s| s.distance);
+
+        // 判定に上がるのは許容内のものだけ。並べ替えは安定なので、
+        // 絞ってから並べたときと先頭は同じになる。
+        let mut within = scores.iter().filter(|s| s.within);
+        let taken = match (within.next(), within.next()) {
+            // 同点なら言い切らない。「あか」と「あお」、「しろ」と「くろ」の
+            // ように1文字違いの色があるので、割れたまま打ち止めにすると
+            // 取り違える。**次の区間に譲るためのもの。** そこも空振りなら
+            // `find` が一番近いものへ倒すので、結局どちらかは鳴る。
+            (Some(best), Some(next)) if next.distance == best.distance => None,
+            (Some(best), _) => Some((best.answer, best.distance)),
+            (None, _) => None,
+        };
+
+        // **同じ文字列は1度しか載せない。** 位置ごとに単独と結合を測るので、
+        // 同じものを二度測ることがある（結合の近さと、次の区間との見比べ）。
+        // 距離は文字列だけで決まるので、二度目は一字一句同じ行になる。
+        if !log.iter().any(|r| r.text == text) {
+            log.push(Ranking {
+                text: text.to_string(),
+                scores,
+                taken: taken.map(|(a, _)| a),
+            });
+        }
+        taken
+    }
+}
+
+/// 認識結果を、判定にかける区間の列にする。
+///
+/// **判定と分けてあるのは、ここが状態機械だから。** 溜め・繋ぎ先・質問の
+/// 破片という3つの規則が絡み、直近の穴はどれも個別の入力ではなく規則同士の
+/// 組み合わせで出た。`assembles_the_segments` で、出来上がった列そのものを
+/// 見られるようにしてある。
+///
+/// `head` は先頭から信用する区間の数。tiny は言っていない語を後ろに継ぎ足す。
+fn assemble(raw: &str, head: usize) -> Vec<String> {
+    let mut parts: Vec<String> = Vec::new();
+    // 直前の区間へ繋いでよいか。**質問が挟まった時点で切れる。**
+    let mut joinable = false;
+    // まだ実のある区間が1つも無いときの溜め。**破片は後ろ向きにしか
+    // 繋げないので、割れた語の1つ目が質問文の一部だと繋ぎ先が無い。**
+    // 「き、いろ」の「き」は「すき」の一部なので、そのまま捨てると
+    // きいろ が丸ごと消える。
+    let mut pending: Vec<String> = Vec::new();
+
+    for seg in segments(&normalize(raw)) {
+        if seg.is_empty() {
+            // 区切りが続いただけ。何も起きていない。
+            continue;
+        }
+        let seg = strip_prompt(&seg);
+        if seg.is_empty() {
+            // まるごと質問だった。**ここから後ろの破片は、前の語の
+            // 続きではなく質問の続き。** 繋ぎ先を切り、溜めも捨てる。
+            joinable = false;
+            pending.clear();
+            continue;
+        }
+        if QUESTION.contains(seg.as_str()) {
+            // 質問文の破片。**単独では答えにならない。** ただし認識が語を
+            // 割っただけのこともあるので（「ちゃいろ」→「じゃあ、いろ」）、
+            // 繋ぎ先が生きていればそちらへ繋ぐ。
+            //
+            // **捨てるのは `truncate` の前。** 破片が席を占めると、後ろの
+            // 本当の答えが `head` から押し出される。
+            if parts.is_empty() {
+                // 繋ぎ先がまだ無い。溜めておいて、**質問文の一部でなく
+                // なった時点で**見極める。質問がそのまま割れて届くぶんには
+                // 「いろ」「いろが」「いろがすき」と伸びるので抜けない。
+                pending.push(seg);
+                if !QUESTION.contains(pending.concat().as_str()) {
+                    // **丸ごと昇格させてはいけない。** 繋ぎ目に無かった語が
+                    // 湧く（「すき」+「いろ」の継ぎ目に「きいろ」）。
+                    pending = match head_of_a_reading(&pending) {
+                        // 読みとして出来上がっている。区間にしてよい。
+                        Some(p) if is_a_reading(&p) => {
+                            parts.push(p);
+                            joinable = true;
+                            Vec::new()
+                        }
+                        // 読みの途中。**ここで区間にすると、続きが
+                        // 別の区間になって離れてしまう。** 溜めに残して
+                        // 次と繋ぐ（「いろ き み どり」の「き」）。
+                        Some(p) => vec![p],
+                        // 読みの頭ですらない。回り込みとして捨てる。
+                        None => Vec::new(),
+                    };
+                }
+                continue;
+            }
+            if joinable {
+                // **答えを含む区間の上には貼らない。** 幻覚の継ぎ足しが
+                // 割れて届くと、確定した答えに貼り付いて上書きする
+                // （「あか」＋「き いろ」→ きいろ）。位置を最優先する
+                // 仕掛けは判定の側にあるので、ここで消えたものは救えない。
+                if let Some(prev) = parts
+                    .last_mut()
+                    .filter(|p| !CANDIDATES.iter().any(|(_, r)| p.contains(r)))
+                {
+                    prev.push_str(&seg);
+                }
+            }
+            continue;
+        }
+        // 溜めは割れた語の前半かもしれない。**繋いだ結果がどれかの読みの
+        // 頭になるときだけ繋ぐ。** 捨てると割れた語が消え、無条件に繋ぐと
+        // 回り込みが答えに貼り付く（「すき みどり」⊃ きみどり）。
+        //
+        // 持ち出すのは溜めが丸ごと読みの頭のときだけ。末尾だけを持ち出すと
+        // 「す き みどり」の「き」が繋がってしまう。
+        let carried = head_of_a_reading(&pending).filter(|p| *p == pending.concat());
+        pending.clear();
+        parts.push(match carried {
+            None => seg,
+            Some(p) => {
+                let joined = p.clone() + &seg;
+                // 読みの途中まで（「き」+「み」）か、読みが丸ごと頭にある
+                // （「き」+「いろだよ」）か。後者でも**読みの側が溜めから
+                // 始まること**は求める。求めないと回り込みが貼り付く。
+                let fits = CANDIDATES.iter().any(|(_, r)| {
+                    r.starts_with(&joined) || (r.starts_with(&p) && joined.starts_with(r))
+                });
+                if fits {
+                    joined
+                } else {
+                    seg
+                }
+            }
+        });
+        joinable = true;
+    }
+    // 同じ語の繰り返しは畳む。tiny が出力を繰り返すことがある。
+    parts.dedup();
+    parts.truncate(head.max(1));
+    parts
+}
+
+/// 読みとして出来上がっているか。頭の途中と区別する。
+fn is_a_reading(s: &str) -> bool {
+    CANDIDATES.iter().any(|(_, r)| *r == s)
+}
+
+/// 破片の列の末尾から、**読みの頭になれる最長のもの**を返す。
+///
+/// 破片の境目を尊重するのが要点。列を繋いだ文字列の中を探すと、繋ぎ目に
+/// 無かった語が湧く。
+///
+/// ```text
+/// 「すき」「いろ」            → なし   （すきいろ も いろ も読みの頭ではない）
+/// 「き」「いろ」              → きいろ
+/// 「いろ」「が」「すき」「き」 → き
+/// ```
+///
+/// 繋いだ文字列で探していた頃は、1つ目が「すきいろ ⊃ きいろ」で Yellow に
+/// なっていた。「すき」の中の「き」は使ってはいけない。
+fn head_of_a_reading(fragments: &[String]) -> Option<String> {
+    // 長いほうから。末尾に寄るほど、質問の回り込みではなく答えに近い。
+    (0..fragments.len()).find_map(|from| {
+        let joined = fragments[from..].concat();
+        CANDIDATES
+            .iter()
+            .any(|(_, r)| r.starts_with(&joined))
+            .then_some(joined)
+    })
+}
+
+/// 境目を**両側2音以上**でまたぐ読みを探す。
+///
+/// 1音だけの重なりは、たまたま音が繋がっただけ。
+///
+/// ```text
+/// じゃあ おれん      じゃ|あお|れん     あ と お が1音ずつ。たまたま
+/// じゃあむら さきだよ  じゃあ|むらさき|だよ  むら と さき で2音ずつ
+/// ```
+fn spanning(text: &str, boundary: usize) -> Option<Answer> {
+    CANDIDATES
+        .iter()
+        .find(|(_, r)| {
+            text.match_indices(*r).any(|(at, _)| {
+                at < boundary
+                    && at + r.len() > boundary
+                    && text[at..boundary].chars().count() >= 2
+                    && text[boundary..at + r.len()].chars().count() >= 2
+            })
+        })
+        .map(|(a, _)| *a)
+}
+
+/// 末尾が読みそのものになっているか。長い読みから順に見る。
+fn ending_with(text: &str) -> Option<Answer> {
+    CANDIDATES
+        .iter()
+        .find(|(_, r)| text.ends_with(*r))
+        .map(|(a, _)| *a)
+}
+
+/// **先頭から始まって境目をまたぐ**読みを探す。`boundary` は前の区間の
+/// 終わり（バイト位置）。
+///
+/// またぐだけでは足りない。前の区間の末尾1文字を拾って後ろに繋がるだけで
+/// 「またいだ」ことになり、**幻覚の継ぎ足しが先頭を追い越す**。
+///
+/// ```text
+/// 「あき、みどり」  き + みどり = きみどり がまたぐ → きみどり
+/// ```
+///
+/// 先頭から始まることまで求めれば、前の区間が丸ごと読みの一部だった場合
+/// だけになる。狙いだった「むら さきいろ」はそちら。
+fn straddling(text: &str, boundary: usize) -> Option<Answer> {
+    CANDIDATES
+        .iter()
+        .find(|(_, r)| text.starts_with(*r) && r.len() > boundary)
+        .map(|(a, _)| *a)
+}
+
+/// 句読点で区切る。
+///
+/// whisper が不明瞭な音を受け取ると、`initial_prompt` に渡した語彙を
+/// そのまま並べて返すことがある。実際に「あお、きいろ、みどり、しろ、みど」
+/// が出た。区切らずに繋げると、部分一致が長い読みから探すせいで
+/// 途中の「きいろ」を拾ってしまう。区切って先頭から見れば、
+/// 最初に言われた色を優先できる。
+///
+/// **ひらがな以外を境界にしてはいけない。** 漢字が区間から消えるので、
+/// 「全部」がまるごと落ちる。実際にそうなった。
+fn segments(s: &str) -> Vec<String> {
+    s.split(is_separator)
+        .filter(|seg| !seg.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn is_separator(c: char) -> bool {
+    c.is_whitespace()
+        || matches!(
+            c,
+            '、' | '。'
+                | '，'
+                | '．'
+                | ','
+                | '.'
+                | '!'
+                | '?'
+                | '！'
+                | '？'
+                | '「'
+                | '」'
+                | '（'
+                | '）'
+                | '('
+                | ')'
+                | '・'
+                | '〜'
+                | '~'
+                | '/'
+        )
+}
+
+/// カタカナをひらがなに寄せる。
+///
+/// **通すのは認識結果だけ。** 語彙の側は初めから正規形で書く約束なので、
+/// カタカナ表記を並べる必要も、ここを通す必要もない。
+/// 長音符「ー」はカタカナ領域の外なのでそのまま残る。
+///
+/// **空白も句読点も落とさない。** どちらも `segments` が区切りとして使う。
+/// ここで空白を消していた頃は `is_separator` の空白判定が到達せず、
+/// 「あお あか」が「あおあか」に繋がって、部分一致で後ろの色が勝っていた。
+/// 先頭を優先する方針が空白入力で破れる。
+fn normalize(s: &str) -> String {
+    s.chars()
+        // **壊れた文字と長音符を落とす。**
+        //
+        // whisper はトークンの上限で切るとき、マルチバイト文字の途中で
+        // 切ることがある。読めなかったぶんは U+FFFD になって届く。
+        // 情報が無いうえに、色名の途中に混ざると一致を壊す。
+        //
+        // 長音符は骨格の側だけで落としていたので、
+        // 完全一致と部分一致は生の文字列を見ることになり、扱いが割れて
+        // いた。「きーみどり」は骨格なら きみどり に丸ごと当たるのに、
+        // 部分一致が先に みどり を拾う。語尾が付くと今度はどちらにも
+        // 届かず「あーかだよ」が丸ごと落ちる。
+        //
+        // 語彙にも質問文にも「ー」は入っていないので、落として困る側が無い。
+        .filter(|&c| c != 'ー' && c != '\u{fffd}')
+        .map(|c| {
+            let u = c as u32;
+            if (0x30A1..=0x30F6).contains(&u) {
+                char::from_u32(u - 0x60).unwrap_or(c)
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+fn strip_prompt(s: &str) -> String {
+    let mut out = s.to_string();
+    for p in PROMPT {
+        out = out.replace(p, "");
+    }
+    out
+}
+
+/// 五十音表。行の子音と、あいうえお順の並び。
+/// `_` はその行に無い音。
+const ROWS: &[(u8, &str)] = &[
+    (b'-', "あいうえお"),
+    (b'k', "かきくけこ"),
+    (b's', "さしすせそ"),
+    (b't', "たちつてと"),
+    (b'n', "なにぬねの"),
+    (b'h', "はひふへほ"),
+    (b'm', "まみむめも"),
+    (b'y', "や_ゆ_よ"),
+    (b'r', "らりるれろ"),
+    (b'w', "わ___を"),
+    (b'g', "がぎぐげご"),
+    (b'z', "ざじずぜぞ"),
+    (b'd', "だぢづでど"),
+    (b'b', "ばびぶべぼ"),
+    (b'p', "ぱぴぷぺぽ"),
+];
+
+/// 仮名を（子音, 母音）に分ける。表に無ければ `None`。
+fn decompose(c: char) -> Option<(u8, usize)> {
+    ROWS.iter().find_map(|(consonant, row)| {
+        row.chars()
+            .position(|k| k == c)
+            .map(|vowel| (*consonant, vowel))
+    })
+}
+
+/// 混同しやすい子音の組。幼児の発音でも音声認識でも入れ替わる。
+///
+/// `sztd` をひとまとめにしているのは、い段で「し・じ・ち・ぢ」が
+/// 硬口蓋の摩擦音／破擦音に寄って区別が付かなくなるため。
+/// 実際に「ちゃいろ」が「じゃあ、いろ」と認識された。
+const NEAR_CONSONANTS: &[&[u8]] = &[
+    b"kg",   // か行・が行（清濁）
+    b"sztd", // さ・ざ・た・だ行（清濁と、し/じ/ち/ぢ の混同）
+    b"hbp",  // は・ば・ぱ行
+    b"mn",   // 鼻音
+    b"rd",   // ら行・だ行（幼児で入れ替わる）
+];
+
+/// 母音だけの音（あいうえお）を表す印。
+const NO_CONSONANT: u8 = b'-';
+
+fn consonant_cost(a: u8, b: u8) -> usize {
+    if a == b {
+        0
+    } else if NEAR_CONSONANTS
+        .iter()
+        .any(|g| g.contains(&a) && g.contains(&b))
+    {
+        1
+    } else if a == NO_CONSONANT || b == NO_CONSONANT {
+        // 子音が丸ごと消える／生えるのは、別の子音に変わるより大きい変化。
+        // ここを同じ扱いにすると「みじろ」が「みずいろ」ではなく
+        // 「きいろ」に寄ってしまう（じ→い を安く見積もるため）。
+        3
+    } else {
+        2
+    }
+}
+
+/// 挿入・削除の重み。
+///
+/// 母音だけの音は落ちたり伸びたりしやすいので安くする。
+/// 「みずいろ」が「みじろ」と認識されたように、幼児の発音でも
+/// 認識結果でも、母音1つの脱落は頻繁に起きる。
+fn indel(c: char) -> usize {
+    match decompose(c) {
+        Some((NO_CONSONANT, _)) => 2,
+        _ => INDEL,
+    }
+}
+
+/// 置換の重み。1音ぶんのずれが 4 になる目盛り。
+///
+/// 素の編集距離だと文字が違えば一律1で、「じ→ぜ」（同じザ行）と
+/// 「ば→く」（無関係）が同じ扱いになる。子音と母音を別々に数え、
+/// さらに子音は音の近さで刻む。
+///   じ→ぜ  子音 z=z(0)      母音 i≠e(2)  → 2
+///   じ→ち  子音 z≈t(1)      母音 i=i(0)  → 1
+///   じ→き  子音 z≠k(2)      母音 i=i(0)  → 2
+///   じ→い  子音 z→無し(3)   母音 i=i(0)  → 3
+///   ば→く  子音 b≠k(2)      母音 a≠u(2)  → 4
+fn substitution(a: char, b: char) -> usize {
+    if a == b {
+        return 0;
+    }
+    match (decompose(a), decompose(b)) {
+        (Some((ca, va)), Some((cb, vb))) => consonant_cost(ca, cb) + if va == vb { 0 } else { 2 },
+        // 「ん」や表に無い文字。似ている度合いを測れないので別物とみなす。
+        _ => 4,
+    }
+}
+
+/// 挿入・削除の重み。**1音まるごとの置換（4）より安い。**
+///
+/// もとは 4 で、「1音ぶんのずれ」をどの操作でも同じ値にしていた。それだと
+/// **音が落ちた語と、音が別物に化けた語が同点になる。**
+///
+/// ```text
+/// より → しろ    よ→し 4（子音2＋母音2）＋ り→ろ 2      = 6
+/// より → みどり  み の脱落 ＋ よ→ど 2（母音が同じ）＋ り 0
+/// ```
+///
+/// 後者は「り」が丸ごと当たっていて、残りも母音が合っている。実機のログは
+/// どれも音が落ちた形（「んぶ」←ぜんぶ、「みじろ」←みずいろ、「より」←みどり）で、
+/// **この遊びでは音は化けるより落ちる。** なら脱落のほうを安く見積もる。
+/// 3 にすると上の例は みどり 5 / しろ 6 に割れる。
+///
+/// **下げすぎてもいけない。** 安いほど長い読みが有利になり、今度は短い色が
+/// 長い色に吸われる。変異を掛けて別の色に化けた数（`mispronunciations_do_not_drift`）で
+/// 底が見える。
+///
+/// ```text
+/// 4  126件  より が しろ / くろ と同点。みずいろ→ちゃいろ 9件      ← もと
+/// 3  123件  より が割れる。みずいろ→ちゃいろ が消える              ← 現状
+/// 2  131件  きみどり→みどり が 76→92 に増え、しろ→ちゃいろ も出る
+/// ```
+///
+/// 置換の最大は 5（子音の消失3＋母音違い2）で、挿入＋削除の 6 より安いまま。
+/// つまり同じ長さなら、まだ置換のほうを選ぶ。
+const INDEL: usize = 3;
+
+/// 音の近さで重み付けした編集距離。日本語なので文字単位で測る。
+fn levenshtein(a: &[char], b: &[char]) -> usize {
+    let mut prev: Vec<usize> = std::iter::once(0)
+        .chain(b.iter().scan(0, |acc, &c| {
+            *acc += indel(c);
+            Some(*acc)
+        }))
+        .collect();
+    let mut cur: Vec<usize> = vec![0; b.len() + 1];
+    for ca in a {
+        cur[0] = prev[0] + indel(*ca);
+        for (j, cb) in b.iter().enumerate() {
+            cur[j + 1] = (prev[j + 1] + indel(*ca))
+                .min(cur[j] + indel(*cb))
+                .min(prev[j] + substitution(*ca, *cb));
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[b.len()]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::color::Color;
+
+    /// 実際に返る応答。段で言い切れなければ一番近いものに倒したもの。
+    fn find(s: &str) -> Option<Answer> {
+        Matcher::new(2).find(s).answer()
+    }
+    /// 段で言い切れたものだけ。**倒し先は見ない。**
+    ///
+    /// 段の規則（位置優先・割れた語の繋ぎ・質問の破片）を見るときはこちら。
+    /// 倒し先まで含めると、どの規則が効いて当たったのか分からなくなる。
+    fn decided(s: &str) -> Option<Answer> {
+        Matcher::new(2).find(s).decided
+    }
+    fn c(x: Color) -> Option<Answer> {
+        Some(Answer::Single(x))
+    }
+
+    /// 候補を `normalize` に通していないので、**語彙の側が正規形である
+    /// ことが前提**になる。カタカナや空白が紛れ込むと、判定が黙って
+    /// 当たらなくなる。制約が破れたらここで気づく。
+    #[test]
+    fn vocabulary_is_already_normalized() {
+        for a in Answer::every() {
+            assert_eq!(normalize(a.reading()), a.reading(), "読みが正規形でない");
+            if let Some(k) = a.kanji() {
+                assert_eq!(normalize(k), k, "漢字表記が正規形でない");
+            }
+        }
+    }
+
+    /// 部分一致は長いほうから試す。並びが崩れると「きみどりがすき」が
+    /// 「みどり」に化ける。const で組んであるので、崩れたらここで気づく。
+    #[test]
+    fn candidates_are_sorted_longest_first() {
+        let lens: Vec<usize> = CANDIDATES.iter().map(|(_, r)| r.chars().count()).collect();
+        assert!(
+            lens.windows(2).all(|w| w[0] >= w[1]),
+            "長い順でない: {lens:?}"
+        );
+
+        // 同じ長さなら読みが先。`after` が元の位置まで見るので、並べ替えの
+        // 安定性に関係なくこの順になる。ここで見ているのは「意図した順に
+        // なっているか」であって、アルゴリズムの性質ではない。
+        //
+        // 崩れると「あかあお」のように繋がって認識されたとき、部分一致が
+        // どちらを採るかが変わる。
+        let is_kanji = |(a, r): &(Answer, &str)| a.kanji() == Some(*r);
+        for w in CANDIDATES.windows(2) {
+            if w[0].1.chars().count() == w[1].1.chars().count() && is_kanji(&w[0]) {
+                assert!(is_kanji(&w[1]), "同じ長さで漢字のあとに読みが来た");
+            }
+        }
+
+        // 同じ長さの読みどうしは宣言順。先に宣言した色が先に当たる。
+        let two: Vec<&str> = CANDIDATES
+            .iter()
+            .filter(|c| c.1.chars().count() == 2 && !is_kanji(c))
+            .map(|c| c.1)
+            .collect();
+        assert_eq!(two, ["あか", "あお", "しろ", "くろ"], "宣言順が崩れた");
+
+        // const で数えた丈が、実際に数えたものと合っているか。
+        let kanji = Answer::every()
+            .iter()
+            .filter(|a| a.kanji().is_some())
+            .count();
+        assert_eq!(CANDIDATES.len(), Answer::COUNT + kanji);
+        assert_eq!(char_count("きみどり"), "きみどり".chars().count());
+    }
+
+    #[test]
+    fn katakana_is_normalized_to_hiragana() {
+        assert_eq!(find("アカ"), c(Color::Red));
+        assert_eq!(find("ピンク"), c(Color::Pink));
+        assert_eq!(find("オレンジ"), c(Color::Orange));
+    }
+
+    #[test]
+    fn punctuation_and_space_are_stripped() {
+        assert_eq!(find(" あか！ "), c(Color::Red));
+        assert_eq!(find("あお。"), c(Color::Blue));
+    }
+
+    #[test]
+    fn substring_prefers_the_longest_reading() {
+        // 「きみどり」は「みどり」を含む。短いほうから見ると取りこぼす。
+        assert_eq!(find("きみどりがすき"), c(Color::YellowGreen));
+        assert_eq!(find("みどりだよ"), c(Color::Green));
+    }
+
+    #[test]
+    fn fuzzy_match_absorbs_mispronunciation() {
+        assert_eq!(find("むらさぎ"), c(Color::Purple));
+        assert_eq!(find("みずいる"), c(Color::LightBlue));
+    }
+
+    #[test]
+    fn all_absorbs_small_slips() {
+        assert_eq!(find("ぜんむ"), Some(Answer::All));
+        // 実際に出た形。拗音と長音を落とすと「じんば」で距離2。
+        assert_eq!(find("ジェンバー"), Some(Answer::All));
+        assert_eq!(find("じゃんぶー"), Some(Answer::All));
+    }
+
+    /// 「ぜんぶ」は**言えなくなってもいけない。**
+    ///
+    /// 誤爆の側だけを見て絞っていくと、遊びを終われなくする方向に倒れる。
+    /// 誤爆は事故で終わること、こちらは終われないこと。どちらも困る。
+    ///
+    #[test]
+    fn the_child_can_still_say_all() {
+        const FORMS: &[&str] = &[
+            "ぜんぶ",
+            "ぜんぶー", // 伸ばす
+            "ぜーんぶ", // 途中で伸ばす
+            "ぜんぷ",   // 清濁
+            "ぜんば",   // 母音
+            "ぜんぼ",
+            "ぜんび",
+            "ぜんむ", // 唇の鼻音
+            "ぜんふ",
+            "じぇんぶ", // 実際に出た形
+            "じゃんぶ",
+            "でんぶ", // 頭の子音
+            "せんぶ",
+            "ぞんぶ",
+            "ぜん",    // 言い切り
+            "ぜん ぶ", // 割れる
+            "ぜ んぶ",
+            "ぜんぶだよ",   // 語尾
+            "えー ぜんぶ",  // フィラー
+            "ぜんぶぜんぶ", // 繰り返す
+            "ぜんぶが すき",
+            // **語を含んでいれば拾えること。** 言い方を増やさない方針なので、
+            // 「ぜんぶ」が入った言い方はどれも通らないと困る。
+            "ゼンブ", // カタカナ
+            "全部",   // 漢字
+            "全部の色",
+            "ぜんぶ！",
+            "ぜんぶのいろ",
+            "ぜんぶがいい",
+            "もうぜんぶ",
+            "ぜんぶすき",
+            "どんないろがすき ぜんぶ", // 質問の回り込み付き
+        ];
+        let mut lost: Vec<&str> = Vec::new();
+        for f in FORMS {
+            if find(f) != Some(Answer::All) {
+                lost.push(f);
+            }
+        }
+        assert!(
+            lost.is_empty(),
+            "「ぜんぶ」と言ったのに終われない: {lost:?}"
+        );
+    }
+
+    /// **「ぜんぶ」を特別扱いしない代償。**
+    ///
+    /// 以前はここだけ許容を絞り、頭と末尾の音まで見て弾いていた。それを
+    /// やめたので、遠い語も「ぜんぶ」になる。間違って終わっても「もう1回」を
+    /// 押せばいいだけで、拾えないほうが遊べなくなる、という判断。
+    ///
+    /// **足切りを外して、代償はさらに増えた。** 段で言い切れなくても一番近い
+    /// ものへ倒すので、倒し先が「ぜんぶ」なら遊びが終わる。実機で「んぶ」
+    /// （＝ぜんぶの言い切り）を拾えなかったのを直したのと同じ仕掛けなので、
+    /// 片方だけ止めることはできない。
+    ///
+    /// **代償は隠さずここに並べる。** 増えたら、まだ釣り合っているか考えること。
+    #[test]
+    fn words_that_end_the_game_by_mistake() {
+        const REAL_WORDS: &[&str] = &[
+            "でんわ",
+            "こんぶ",
+            "おんぶ",
+            "さんぽ",
+            "わんわん",
+            "ごはん",
+            "はんぶん",
+            "あそぶ",
+            "りんご",
+            "でんしゃ",
+            "えほん",
+            "なんで",
+            "ぱん",
+            "みかん",
+            "うんち",
+            "ぽんぽん",
+            "たんぽぽ",
+            "でんき",
+            "げんき",
+            "えんぴつ",
+            "しんぶん",
+            "こんにちは",
+            "どんぐり",
+            "とぶ",
+            "よぶ",
+            "ころぶ",
+        ];
+        // 現状ここで終わってしまう語。**増えても減っても落とす。**
+        // 判定をいじると動くので、そのたびに見て、まだ釣り合っているか考える。
+        const ENDS: &[&str] = &[
+            "でんわ",
+            "こんぶ",
+            "おんぶ",
+            "さんぽ",
+            // ここから下は足切りを外して増えたぶん。
+            "はんぶん",
+            "たんぽぽ",
+            "えんぴつ",
+            "しんぶん",
+            "とぶ",
+            "よぶ",
+        ];
+        // そのうち、段が「ぜんぶ」と言い切ったもの。**どちら側が動いたのかを
+        // 分けて見る。** 段が増えたなら距離の重みか許容の話で、倒し先が
+        // 増えたならもともと当てられていなかったぶんが色になっただけ。
+        const DECIDED: &[&str] = &["でんわ", "こんぶ", "おんぶ", "さんぽ", "しんぶん"];
+
+        let ends: Vec<&str> = REAL_WORDS
+            .iter()
+            .copied()
+            .filter(|w| find(w) == Some(Answer::All))
+            .collect();
+        assert_eq!(ends, ENDS, "\n事故で終わる語が変わった");
+
+        let decided: Vec<&str> = REAL_WORDS
+            .iter()
+            .copied()
+            .filter(|w| decided(w) == Some(Answer::All))
+            .collect();
+        assert_eq!(decided, DECIDED, "\n言い切って終わる語が変わった");
+    }
+
+    #[test]
+    fn empty_input() {
+        assert_eq!(find(""), None);
+        assert_eq!(find("   "), None);
+    }
+
+    #[test]
+    fn kanji_is_matched() {
+        // initial_prompt は誘導であって強制ではないので漢字は出る。
+        assert_eq!(find("全部"), Some(Answer::All));
+        assert_eq!(find("赤"), c(Color::Red));
+        assert_eq!(find("黄色"), c(Color::Yellow));
+        assert_eq!(find("黄緑"), c(Color::YellowGreen));
+        assert_eq!(find("水色"), c(Color::LightBlue));
+    }
+
+    #[test]
+    fn split_word_is_rejoined() {
+        assert_eq!(find("むら、さき"), c(Color::Purple));
+
+        assert_eq!(find("き、いろ"), c(Color::Yellow));
+    }
+
+    #[test]
+    fn earlier_segment_wins() {
+        assert_eq!(find("むらさき / みどり"), c(Color::Purple));
+        // 空白も区切り。繋げてしまうと部分一致で後ろの色が勝つ。
+        assert_eq!(find("みどり\tきいろ"), c(Color::Green));
+    }
+
+    #[test]
+    fn question_bleeding_in_does_not_become_a_color() {
+        // 質問が回り込んでも色にしない。「いろ」を残すときいろに化ける。
+        // 質問の後ろに答えがくっついても答えだけ拾う。
+        assert_eq!(find("どんないろがすきあか"), c(Color::Red));
+
+        // **whisper は質問を空白で割って返す。** 区切ってから削るので、
+        // 破片の「いろ」が生き残って「しろ」に化けていた。
+        assert_eq!(find("どんな いろ が すき"), None);
+        // **そして位置を最優先するので、破片が本当の答えを押し出す。**
+        // ランダムに外すのではなく、毎回きまって「しろ」が鳴っていた。
+
+        // **前に何か挟まっても同じこと。** 破片を直前へ繋ぐようにしたら、
+        // 今度は繋ぎ先がフィラーになって「ちゃいろ」「きみどり」に化けた。
+        // 質問が挟まった時点で繋ぎ先を切る。
+        assert_eq!(find("じゃあ どんな いろ が すき みどり"), c(Color::Green));
+        assert_eq!(find("えー どんな いろ が すき みどり"), c(Color::Green));
+    }
+
+    /// 1音のフィラーは色にしない。
+    ///
+    /// **短すぎるものは何にでも近い。** 「えー」の骨格は「え」1文字で、
+    /// 「あお」に一意に当たっていた。位置が最優先なので、後ろで本当に
+    /// 言った色を押し出す。ランダムに外すのではなく毎回きまって外す。
+    #[test]
+    fn a_single_mora_is_not_a_color() {
+        // 下限の根拠。候補の骨格はどれも2文字以上ある。
+        for (a, sk) in Matcher::new(2).skeletons.iter() {
+            assert!(sk.len() >= 2, "{a:?} の骨格が2文字未満: {sk:?}");
+        }
+    }
+
+    /// 質問文の破片を捨てる仕掛けが、答えのほうを巻き込んでいないこと。
+    ///
+    /// 色を足したときに「読みがたまたま質問文の一部だった」となると、
+    /// その色だけ永久に当たらなくなる。無言に倒れるので気づきにくい。
+    #[test]
+    fn no_answer_hides_inside_the_question() {
+        for (answer, reading) in CANDIDATES {
+            assert!(
+                !QUESTION.contains(reading),
+                "{answer:?} の読み「{reading}」が質問文の一部になっている。\
+                 このままだと聞き取れても捨てられる"
+            );
+        }
+    }
+
+    /// 表で回す回帰。**ラウンドを重ねて集まった実例をここに集約する。**
+    ///
+    /// 段の順や前処理の規則をいじると、直したいものとは別のところが
+    /// 動く。個別の assert だと最初の1件で止まって全体像が見えないので、
+    /// 全部試してからまとめて出す。
+    ///
+    /// **ここで見るのは段だけ。** 期待値は読みで書き、`-` は「段では
+    /// 言い切らない」。倒し先（一番近いもの）は `it_does_not_give_up` の側。
+    ///
+    /// 分けてあるのは、段の規則をいじったときに動いてほしいのがこちらだから。
+    /// 倒し先まで混ぜると、`-` の行が全部どこかの色になって、規則が効いた
+    /// のか倒し先が拾ったのかを見分けられない。
+    #[test]
+    fn the_cases_that_taught_us_something() {
+        // 入力, 期待する読み, なぜこれが表にあるか
+        const TABLE: &[(&str, &str, &str)] = &[
+            ("あか", "あか", "素直な一致"),
+            ("ぜんぶ", "ぜんぶ", "終わりの合図"),
+            ("みずいろ", "みずいろ", "素直な一致"),
+            ("おかあさん", "-", "色でない語は言い切らない"),
+            (
+                "みじろ",
+                "みずいろ",
+                "母音の脱落。高く見積もると きいろ に負ける",
+            ),
+            ("みじろ、みじろ。", "みずいろ", "同上"),
+            (
+                "あき",
+                "あか",
+                "カ行の母音違いのほうが、子音も母音も違う あお より近い",
+            ),
+            (
+                "あお、きいろ、みどり、しろ、みど",
+                "あお",
+                "whisper が語彙を吐き返した実例。繋げて探すと途中の きいろ を拾う",
+            ),
+            (
+                "きーろ",
+                "-",
+                "きいろ / しろ / くろ が三つ巴で同点。言い切らない",
+            ),
+            ("しーろ", "しろ", "長音は骨格で落とす"),
+            ("どんないろがすき", "-", "質問の回り込み"),
+            // 認識が語を割る
+            ("じゃあ、いろ。", "ちゃいろ", "ちゃいろ が割れた実例"),
+            (
+                "むら さき",
+                "むらさき",
+                "結合の完全一致が単独の音の近さに負けていた",
+            ),
+            ("きみ どり", "きみどり", "同上"),
+            (
+                "むら さぎ",
+                "むらさき",
+                "割れたうえに一音ずれる。距離で決める",
+            ),
+            ("ぜん ぶ", "ぜんぶ", "終われなくなる"),
+            ("むら さきいろ", "むらさき", "境目をまたぐ部分一致"),
+            ("むらさきいろ", "むらさき", "割れていない同じもの"),
+            // 質問の回り込みと、割れた答えの区別
+            (
+                "どんな いろ",
+                "-",
+                "空白で割れると strip_prompt を擦り抜けていた",
+            ),
+            ("いろ", "-", "破片は単独で答えにならない"),
+            (
+                "どんな いろ あか",
+                "あか",
+                "破片が本当の答えを押し出していた",
+            ),
+            ("どんな いろ が すき みどり", "みどり", "同上"),
+            (
+                "じゃあ どんな いろ あか",
+                "あか",
+                "繋ぎ先がフィラーになっていた",
+            ),
+            ("すき みどり", "みどり", "回り込みが答えに貼り付いていた"),
+            ("いろ が すき みどり", "みどり", "同上"),
+            (
+                "き いろ",
+                "きいろ",
+                "割れた語の頭が質問文の一部（き ⊂ すき）",
+            ),
+            (
+                "き みどり",
+                "きみどり",
+                "同上。次が質問の続きでなくても繋ぐ",
+            ),
+            ("き み どり", "きみどり", "3つに割れる"),
+            ("き いろだよ", "きいろ", "読みの後ろに語が付いても繋ぐ"),
+            ("き みどりだよ", "きみどり", "同上"),
+            ("みず いろ", "みずいろ", "同上"),
+            ("ちゃ いろ", "ちゃいろ", "同上"),
+            ("どんな いろ き いろ", "きいろ", "回り込んだうえに割れる"),
+            ("どんな いろ が すき き いろ", "きいろ", "同上"),
+            ("どんな いろ が すき き みどり", "きみどり", "同上"),
+            (
+                "どんな いろ みじろ",
+                "みずいろ",
+                "破片を答えに繋いではいけない側",
+            ),
+            // 区切りが無くても位置が優先。候補の並び順で決めると、同じ長さの
+            // うち先に宣言したほうが常に勝つ（「ぜんぶ」が末尾なので必ず負けた）。
+            ("ぜんぶぴんく", "ぜんぶ", "先に出てくるほうを採る"),
+            ("ぴんくぜんぶ", "ぴんく", "同上"),
+            ("みどりきみどり", "みどり", "同上"),
+            // 幻覚の継ぎ足しは捨てる。位置が最優先
+            (
+                "あお、おれんじ、あか",
+                "あお",
+                "tiny は言っていない語を後ろに継ぎ足す",
+            ),
+            (
+                "あか、あお、みどり、しろ、くろ",
+                "あか",
+                "同上。先頭を優先する",
+            ),
+            (
+                "みじろ、きいろ",
+                "みずいろ",
+                "先頭は音の近さでしか当たらないが、それでも先頭",
+            ),
+            (
+                "みじろ、みじろ、きいろ、しろ",
+                "みずいろ",
+                "繰り返し＋継ぎ足し",
+            ),
+            (
+                "あき、みどり",
+                "あか",
+                "末尾1文字が継ぎ足しに繋がって、またいで見えた",
+            ),
+            ("むらざき、みどり", "むらさき", "同上"),
+            ("あか。あお", "あか", "先頭優先"),
+            ("あお あか", "あお", "空白も区切り"),
+            // 溜めの継ぎ目から語が湧かないこと
+            (
+                "すき いろ",
+                "-",
+                "繋いだ文字列で探すと継ぎ目に きいろ が出来る",
+            ),
+            (
+                "すき いろ あか",
+                "あか",
+                "同上。湧いた色が本当の答えを遮っていた",
+            ),
+            ("どんな いろ が すき いろ あか", "あか", "同上"),
+            ("いろ き みどり", "きみどり", "破片の境目を尊重する"),
+            (
+                "いろ き み どり",
+                "きみどり",
+                "読みの途中を区間にすると続きが離れる",
+            ),
+            ("いろ き みど り", "きみどり", "同上"),
+            (
+                "どんな いろ が すき き み どり",
+                "きみどり",
+                "同上。回り込み付き",
+            ),
+            (
+                "じゃあ おれんじ",
+                "おれんじ",
+                "またぐ判定が、右で完結した答えを遮っていた",
+            ),
+            // フィラー
+            ("えー", "-", "1音は何にでも近い"),
+            ("あの", "-", "2モーラのフィラー。あお に d=3 で当たっていた"),
+            (
+                "あの、あか",
+                "あか",
+                "「あの」は2歳児の言い出しの定番。毎回 あお になっていた",
+            ),
+            ("この", "-", "3音の読みへ1音半まで許すと きいろ に当たる"),
+            ("この あお", "あお", "同上。短いほうで測る"),
+            ("その", "-", "しろ に d=4 で当たっていた"),
+            (
+                "えー ちろ",
+                "しろ",
+                "結合の音の近さが、次の区間単独の確かな一致を潰していた",
+            ),
+            ("えー かろ", "くろ", "同上"),
+            ("みずろ", "みずいろ", "割れていない形"),
+            (
+                "み ずろ",
+                "みずいろ",
+                "同点で次に譲ると、割れ方だけで別の色になっていた",
+            ),
+            ("きみ どどり", "きみどり", "同上"),
+            (
+                "じゃあ おれん",
+                "おれんじ",
+                "じゃ|あお|んじ と途中でまたいで あお になっていた",
+            ),
+            ("じゃあ おんじ", "おれんじ", "同上"),
+            ("みみ どり", "みどり", "読みで終わるものは拾う"),
+            ("みみ ずいろ", "みずいろ", "同上"),
+            // 境目を両側2音以上でまたぐもの
+            (
+                "じゃあむら さきだよ",
+                "むらさき",
+                "前置きと語尾に挟まれて割れても拾う",
+            ),
+            ("えーむら さきだよ", "むらさき", "同上"),
+            ("じゃあみず いろだよ", "みずいろ", "同上"),
+            ("えーきみ どりだよ", "きみどり", "同上"),
+            // 出来上がった答えの上に貼らない
+            (
+                "あか き いろ",
+                "あか",
+                "幻覚の継ぎ足しが、完全一致した答えに貼り付いていた",
+            ),
+            ("みどり き いろ", "みどり", "同上"),
+            (
+                "あかだよ き いろ",
+                "あか",
+                "語尾が付くと、貼らない判定を素通りしていた",
+            ),
+            ("みどりだよ き いろ", "みどり", "同上"),
+            // 「ぜんぶ」も特別扱いしない。ぴんく の崩れが ぜんぶ になるのは、
+            // 別の色になるのと同じ扱い（「もう1回」で戻せる）。
+            (
+                "ぜんく",
+                "ぜんぶ",
+                "以前はここだけ頭と末尾の音まで見て弾いていた",
+            ),
+            ("ぜんば", "ぜんぶ", "崩れた言い方も拾う"),
+            ("ぜんぷ", "ぜんぶ", "同上"),
+            ("あの つゃいろ", "ちゃいろ", "同上"),
+            // 長音符
+            (
+                "きーみどり",
+                "きみどり",
+                "骨格だけで落としていたので、部分一致が先に みどり を拾った",
+            ),
+            // whisper がトークンの上限でマルチバイト文字を切ると U+FFFD が
+            // 届く。末尾なら害は薄いが、**2文字の色の途中に混ざると別の色に
+            // 化ける**（許容が半音しかないので、1文字増えるだけで届かない）。
+            ("し\u{fffd}ろ", "しろ", "落とさないと ちゃいろ になる"),
+            ("く\u{fffd}ろ", "くろ", "落とさないと きいろ になる"),
+            ("あ\u{fffd}か", "あか", "落とさないと どれにも当たらない"),
+            ("ぷんく、ぷんく、ぷんく、\u{fffd}", "ぴんく", "実際に出た形"),
+            // 実機のログ。「ぜんぶ」と言ったときに whisper が返した形。
+            // 特別扱いを撤廃した動機がこれなので、固定しておく。
+            ("ちゃんぶ", "ぜんぶ", "実際に出た形"),
+            ("んけんぶ", "ぜんぶ", "撤廃前は ぴんく になっていた"),
+            ("きゃんぶ", "-", "ぴんく と同点。言い切れないまま倒す形"),
+            ("あーかだよ", "あか", "語尾が付くとどの段にも届かなかった"),
+            ("ぴーんくだよ", "ぴんく", "同上"),
+            // 言い切り
+            (
+                "みず",
+                "みずいろ",
+                "2歳児は「みず！」と言う。読みの頭そのものなら言い切り",
+            ),
+            ("みど", "みどり", "同上"),
+            ("ぜん", "ぜんぶ", "同上。これは終わってよい"),
+            // 溜めの持ち出し
+            (
+                "す き みどり",
+                "みどり",
+                "質問が割れた「き」だけを持ち出さない",
+            ),
+            (
+                "す き いろ",
+                "きいろ",
+                "**現状こうなる。** 割れ方が曖昧で、どちらとも決めきれない",
+            ),
+            ("えー みどり", "みどり", "1音が本当の答えを押し出していた"),
+            ("うーん あか", "あか", "同上"),
+        ];
+
+        let mut ng: Vec<String> = Vec::new();
+        for (input, want, why) in TABLE {
+            let got = match decided(input) {
+                Some(a) => a.reading().to_string(),
+                None => "-".to_string(),
+            };
+            if got != *want {
+                ng.push(format!("  {input:?} => {got}（期待 {want}）\n    {why}"));
+            }
+        }
+        assert!(ng.is_empty(), "\n{}", ng.join("\n"));
+    }
+
+    /// **段で言い切れなくても黙らない。** 測った中で一番近いものへ倒す。
+    ///
+    /// 足切りして無反応にしていた頃、ここは全部ランダムな色だった。実機の
+    /// ログを見ると、段が諦めた場面でも子どもが実際に言った色はたいてい上位に
+    /// 居た。当たる回があるぶんランダムより良く、外しても同じだけ悪い。
+    ///
+    /// `▶` は子どもが実際に言った色。**外す行も並べる。** 当たる行だけ載せると
+    /// 「倒せば当たる」ように読めるが、そういう仕掛けではない。
+    ///
+    /// 期待値は読み。`-` は「音の近さを一度も測っていない」で、倒し先が無いのは
+    /// そこだけ（呼び出し側でランダムな色になる）。
+    #[test]
+    fn it_does_not_give_up() {
+        const TABLE: &[(&str, &str, &str)] = &[
+            // 実機のログ。どれも段では言い切れなかったもの。
+            (
+                "んぶ",
+                "ぜんぶ",
+                "▶ぜんぶ。言い切りが2音なので許容の外に落ちていた",
+            ),
+            ("みよ", "しろ", "▶しろ"),
+            ("あたん", "あか", "▶あか"),
+            ("あざのっ", "あか", "▶あか"),
+            ("あたあの", "あか", "▶あか"),
+            (
+                "より",
+                "みどり",
+                "▶みどり。脱落を安くするまで しろ / くろ と同点だった",
+            ),
+            ("りゃり", "しろ", "▶みどり。外す"),
+            ("いいよ", "ちゃいろ", "▶きいろ。同点で外す"),
+            // 同点で決めなかったものも倒す。**先に測った側から採る。**
+            ("きーろ", "きいろ", "きいろ / しろ / くろ の三つ巴"),
+            ("きゃんぶ", "ぴんく", "ぴんく と ぜんぶ が同点"),
+            // 色でない語まで色になる。**足切りを外した代償はここに出る。**
+            // 遊びの最中に外れても「もう1回」で戻せる、という釣り合い。
+            ("おかあさん", "あか", "色でない語"),
+            ("あの", "あお", "2モーラのフィラー"),
+            ("この", "くろ", "同上"),
+            ("その", "しろ", "同上"),
+            // **段の線は残っている。** フィラーが先頭に来ても、次の区間で
+            // 言い切れるならそちらが勝つ。倒し先まで落ちてこない。
+            ("あの、あか", "あか", "「あの」は2歳児の言い出しの定番"),
+            ("この あお", "あお", "同上"),
+            ("えー みどり", "みどり", "同上"),
+            // 測っていないものだけ倒し先が無い。
+            ("えー", "-", "1音は土俵に乗らないので測らない"),
+            ("いろ", "-", "質問の破片しか無い"),
+            ("どんな いろ が すき", "-", "同上"),
+            ("", "-", "無言"),
+        ];
+
+        let mut ng: Vec<String> = Vec::new();
+        for (input, want, why) in TABLE {
+            let got = match find(input) {
+                Some(a) => a.reading().to_string(),
+                None => "-".to_string(),
+            };
+            if got != *want {
+                ng.push(format!("  {input:?} => {got}（期待 {want}）\n    {why}"));
+            }
+        }
+        assert!(ng.is_empty(), "\n{}", ng.join("\n"));
+    }
+
+    /// 判定にかける前に、区間の列がどう組み上がるか。
+    ///
+    /// **ここは状態機械。** 溜め・繋ぎ先・質問の破片という3つの規則が絡み、
+    /// 直近の穴はどれも個別の入力ではなく規則同士の組み合わせで出た。
+    /// 判定を通した結果だけ見ていると、組み立てのどこが効いたのか分からない。
+    #[test]
+    fn assembles_the_segments() {
+        // 入力, 出来上がる区間, なぜこれが表にあるか
+        const TABLE: &[(&str, &[&str], &str)] = &[
+            ("あか", &["あか"], "素直"),
+            ("あお あか", &["あお", "あか"], "空白も区切り"),
+            ("じゃあ、いろ。", &["じゃあいろ"], "破片を直前へ繋ぐ"),
+            ("どんな いろ", &[], "質問はまるごと消える"),
+            ("どんな いろ あか", &["あか"], "破片が席を占めない"),
+            (
+                "じゃあ どんな いろ あか",
+                &["じゃあ", "あか"],
+                "質問が挟まったら繋ぎ先を切る",
+            ),
+            (
+                "どんな いろ みじろ",
+                &["みじろ"],
+                "読みの頭でない溜めは繋がない",
+            ),
+            ("き いろ", &["きいろ"], "溜めが読みとして出来上がる"),
+            ("き いろだよ", &["きいろだよ"], "読みが丸ごと頭にある"),
+            ("き み どり", &["きみ", "どり"], "読みの途中は溜めに残す"),
+            (
+                "いろ き み どり",
+                &["きみ", "どり"],
+                "回り込みを剥がしてから同じことをする",
+            ),
+            ("いろ き", &[], "読みの途中のまま終われば捨てる"),
+            (
+                "すき いろ あか",
+                &["あか"],
+                "繋ぎ目に湧いた語を昇格させない",
+            ),
+            ("すき みどり", &["みどり"], "回り込みは答えに貼り付かない"),
+            (
+                "みじろ、みじろ、きいろ、しろ",
+                &["みじろ", "きいろ"],
+                "畳んで、先頭だけ信用する",
+            ),
+        ];
+
+        let mut ng: Vec<String> = Vec::new();
+        for (input, want, why) in TABLE {
+            let got = assemble(input, 2);
+            if got != *want {
+                ng.push(format!(
+                    "  {input:?} => {got:?}（期待 {want:?}）\n    {why}"
+                ));
+            }
+        }
+        assert!(ng.is_empty(), "\n{}", ng.join("\n"));
+    }
+
+    /// 五十音表にある字。変異の材料。
+    fn kana() -> Vec<char> {
+        ROWS.iter()
+            .flat_map(|(_, row)| row.chars())
+            .filter(|&c| c != '_')
+            .collect()
+    }
+
+    /// 別の色に化ける組を固定して見張る。
+    ///
+    /// 表は起きたことを覚えておくもので、**まだ起きていない崩れ方は拾えない。**
+    /// 幼児の発音は毎回ずれるので、ずらしたものを網羅して掛ける。
+    ///
+    /// 取りこぼし（段が言い切れず、一番近いものに倒したぶん）は許す。数だけ
+    /// 数える。**段が化けるほうは「きまって同じ間違い」**になるので、組と数を
+    /// 固定する。
+    ///
+    /// 割れた形にも前後の文脈を掛ける。**掛けていなかったので、破片が
+    /// head の席を食う崩れ方を作れていなかった。**
+    #[test]
+    fn mispronunciations_do_not_drift() {
+        let m = Matcher::new(2);
+        let kana = kana();
+
+        // 脱落 / 重複 / 入れ替え / 近い音への置換。
+        let mutations = |s: &str| -> Vec<String> {
+            let cs: Vec<char> = s.chars().collect();
+            let mut out = Vec::new();
+            for i in 0..cs.len() {
+                let mut drop = cs.clone();
+                drop.remove(i);
+                out.push(drop.into_iter().collect());
+
+                let mut twice = cs.clone();
+                twice.insert(i, cs[i]);
+                out.push(twice.into_iter().collect());
+
+                if i + 1 < cs.len() {
+                    let mut swap = cs.clone();
+                    swap.swap(i, i + 1);
+                    out.push(swap.into_iter().collect());
+                }
+
+                for &k in &kana {
+                    if k != cs[i] && substitution(cs[i], k) <= 1 {
+                        let mut sub = cs.clone();
+                        sub[i] = k;
+                        out.push(sub.into_iter().collect());
+                    }
+                }
+            }
+            out.retain(|v: &String| !v.is_empty());
+            out
+        };
+
+        // 段で言い切って化けたもの。組と数を固定する。
+        let mut wrong: Vec<(&str, &str)> = Vec::new();
+        // 段では決まらず、倒し先が別の答えになったもの。
+        //
+        // **こちらは組までは固定しない。** 昔の「無反応 → ランダムな色」が
+        // ここに来ている。当てられていないのは同じで、鳴る色が決まった
+        // だけなので、段の化け方と混ぜると見張る対象がぼやける。
+        // 数だけ見ておいて、増えたら倒し先の選び方を疑う。
+        let mut missed = 0;
+        let mut total = 0;
+
+        for color in <Color as strum::VariantArray>::VARIANTS {
+            for v in mutations(color.reading()) {
+                let split: Vec<String> = (1..v.chars().count())
+                    .map(|at| {
+                        let (a, b) = v.split_at(v.char_indices().nth(at).unwrap().0);
+                        format!("{a} {b}")
+                    })
+                    .collect();
+                for body in std::iter::once(v.clone()).chain(split) {
+                    for input in [
+                        body.clone(),
+                        format!("えー {body}"),
+                        format!("{body}だよ"),
+                        format!("どんな いろ が すき {body}"),
+                    ] {
+                        total += 1;
+                        let verdict = m.find(&input);
+                        // **「ぜんぶ」も1組として数える。** 以前はここだけ
+                        // 別枠で落としていた。取り違えは取り違えで、遊びが
+                        // 終わっても「もう1回」を押せばいいだけ。
+                        match verdict.decided {
+                            Some(got) if got != Answer::Single(*color) => {
+                                wrong.push((color.reading(), got.reading()))
+                            }
+                            Some(_) => {}
+                            // 言い切れなかった。倒し先が当たっていれば拾えた
+                            // ことになる（昔はここが無反応だった）。
+                            None => {
+                                if verdict.closest != Some(Answer::Single(*color)) {
+                                    missed += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // **入力そのものまでは固定していない。** この規模だと表が数千行に
+        // なる。同じ組の中で入力が入れ替わっただけの変化は見つけられない。
+        const ALLOWED: &[(&str, &str, usize)] = &[
+            // 「みどり」は きみどり に丸ごと入っている。頭が崩れれば
+            // そちらに落ちる。どちらも緑なので、外れ方として一番軽い。
+            ("きみどり", "みどり", 80),
+            // **フィラー＋割れた語。**「えー お れんじ」の「えー」「お」が
+            // どちらも1音で、結合すると「えお」→ あお に当たる。両レビュー
+            // とも、これを規則の追加で潰すのは逆効果という見立て。
+            ("おれんじ", "あお", 17),
+            // 骨格にすると ちいろ / しろ で1音違い。人が聞いても割れる。
+            ("ちゃいろ", "しろ", 9),
+            ("あか", "あお", 4),
+            ("きみどり", "きいろ", 4),
+            // **脱落を安くした代償。** 短い読みが、それを含む長い読みに
+            // 吸われる向きが強くなった。どちらも緑なので軽いほうの外れ。
+            ("みどり", "きみどり", 4),
+            ("みずいろ", "くろ", 2),
+            ("みどり", "しろ", 2),
+            ("ぴんく", "ぜんぶ", 1),
+        ];
+
+        let mut seen: Vec<(&str, &str, usize)> = Vec::new();
+        for (want, got) in &wrong {
+            match seen.iter_mut().find(|(w, g, _)| w == want && g == got) {
+                Some((_, _, n)) => *n += 1,
+                None => seen.push((want, got, 1)),
+            }
+        }
+        let key = |&(w, g, n): &(&str, &str, usize)| (usize::MAX - n, w.to_string(), g.to_string());
+        seen.sort_by_key(key);
+        let mut expected = ALLOWED.to_vec();
+        expected.sort_by_key(key);
+        assert_eq!(
+            seen, expected,
+            "\n化け方が変わった（全 {total} 通り）。左が実際、右が許しているもの"
+        );
+        eprintln!(
+            "  ずらした言い方 {total} 通り: 別の色 {} / 言い切れず倒した先も外れ {missed}",
+            wrong.len()
+        );
+        // 倒し先の当たり外れは組まで固定しないが、**桁は見張る。** 段が
+        // 言い切れなかったぶんは元から当たっていなかったので、ここが増えても
+        // 昔より悪くはならない。急に増えたら倒し先の選び方を疑う。
+        assert!(
+            missed < total / 4,
+            "倒し先の外れが多すぎる: {missed}/{total}"
+        );
+    }
+
+    /// ログに**落選まで出ること。**
+    ///
+    /// 判定した色だけ出していた頃は、外れたときに何も分からなかった。
+    /// 隣に何がいて、どれが許容の外で、なぜ言い切れなかったのか。段の線を
+    /// 動かすかどうかはそこを見ないと決められないので、体裁ごと固定する。
+    ///
+    /// **倒したことも書く。** 言い切って当てたのか、遠い中で一番近いものを
+    /// 選んだだけなのかが同じ見た目だと、ログを追う意味が半分無くなる。
+    ///
+    /// **距離の重みをいじるとここも動く。** 数字が変わっただけなら、
+    /// 期待値を書き換えてよい。消えてはいけないのは行そのものと印。
+    #[test]
+    fn the_log_shows_what_lost() {
+        let m = Matcher::new(2);
+        let log = |s: &str| m.find(s).to_string();
+
+        // 選ばれた色の隣に誰がいたか。上位5件で、6件目以降は「…」に畳む。
+        // 「みじろ」は みずいろ と きいろ が競る形（表にもある実例）。
+        assert_eq!(
+            log("みじろ"),
+            "判定 みずいろ\n    近さ「みじろ」 みずいろ 4 / ✗しろ 4 / ちゃいろ 5 / きいろ 5 / みどり 5 / …"
+        );
+
+        // **言い切れなかった理由は書き分ける。** 同点なら線を緩めても直らない。
+        assert!(
+            log("きーろ").contains("同点で決めない"),
+            "{}",
+            log("きーろ")
+        );
+        assert!(
+            log("おかあさん").contains("どれも遠い"),
+            "{}",
+            log("おかあさん")
+        );
+
+        // **倒したことが1行目に出る。** どれも遠くても色は鳴るので、ログが
+        // 「判定 しろ」だけだと言い切って当てたのと見分けが付かない。
+        assert!(
+            log("みよ").starts_with("判定 しろ（一番近いものに倒した）"),
+            "{}",
+            log("みよ")
+        );
+
+        // 完全一致は音の近さを測らない。**行が無いことを「全部落ちた」と
+        // 読み違えないように、測っていないと書く。**
+        assert_eq!(log("あか"), "判定 あか（音の近さは測っていない）");
+        assert_eq!(log("どんな いろ"), "判定 なし（音の近さは測っていない）");
+
+        // 同じ文字列を二度測っても行は増えない。
+        assert_eq!(log("えー ちろ").matches("近さ「ちろ」").count(), 1);
+    }
+
+    #[test]
+    fn levenshtein_weighs_by_sound() {
+        let d = |x: &str, y: &str| {
+            let a: Vec<char> = x.chars().collect();
+            let b: Vec<char> = y.chars().collect();
+            levenshtein(&a, &b)
+        };
+        assert_eq!(d("あか", "あか"), 0);
+        // 同じ行なら母音のずれだけ
+        assert_eq!(d("じ", "ぜ"), 2);
+        assert_eq!(d("ば", "ぶ"), 2);
+        // 近い子音は安い
+        assert_eq!(d("じ", "ち"), 1);
+        assert_eq!(d("ぱ", "ば"), 1);
+        // 子音が丸ごと消えるのは、別の子音に変わるより大きい
+        assert!(d("じ", "い") > d("じ", "き"));
+        // 子音も母音も違えば満額
+        assert_eq!(d("ば", "く"), 4);
+        // 「じんば」は「ぴんく」より「ぜんぶ」に近い
+        assert!(d("じんば", "ぜんぶ") < d("じんば", "ぴんく"));
+    }
+}

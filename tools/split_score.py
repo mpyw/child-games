@@ -4,7 +4,7 @@
 原曲にある4色（あか・あお・きいろ・みどり）はそのまま抜き出し、
 残り8色は節の型に音数を合わせて編曲する。
 
-出力は assets/musicxml/*.musicxml。OpenUtau に読み込ませて
+出力は games/donna-iro/assets/musicxml/*.musicxml。OpenUtau に読み込ませて
 つくよみちゃんUTAU音源で歌わせる想定。
 
     python3 tools/split_score.py
@@ -14,8 +14,8 @@ import copy
 import os
 import xml.etree.ElementTree as ET
 
-SRC = "assets/score/donna-irogasuki.musicxml"
-OUT = "assets/musicxml"
+SRC = "games/donna-iro/assets/score/donna-irogasuki.musicxml"
+OUT = "games/donna-iro/assets/musicxml"
 BPM = 126
 DIV = 12  # divisions per quarter note
 

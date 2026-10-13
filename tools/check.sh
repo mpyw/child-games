@@ -8,9 +8,13 @@
 # 既定のビルドだけ見ていたら気づけなかった。組み合わせを回すのはそのため。
 #
 # **エラーはどの組み合わせでも落とす。警告は既定のビルドだけ落とす。**
-# 機能を削ったビルドでは、その構成で使われないものが素直に死ぬ（描画専用の
-# Rgb、録音専用のアクセサなど）。これを0にするには app の側に io の feature
-# 名で cfg を書くことになり、層が濁る。数は出すので、増えたら見ること。
+# 機能を削ったビルドでは、その構成で使われないものが素直に死ぬ（録音専用の
+# アクセサなど）。これを0にするには menu や遊びの側に io の feature 名で cfg
+# を書くことになり、層が濁る。数は出すので、増えたら見ること。
+#
+# **ワークスペース全体を見る（--workspace）。** 素の cargo は default-members
+# （home）しか見ないので、kit と遊びのテストが黙って飛ぶ。feature は home の
+# ものなので、指定は home にだけ効く。
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -64,7 +68,7 @@ fi
 # git-lfs が無くても検査は回る。ただし音源が実体で落ちてこないので
 # 「埋め込み（本番）」が黙って飛ぶ。**飛んだことは言う。**
 if ! git lfs version >/dev/null 2>&1; then
-  echo "⚠ git-lfs が無い。assets/ の音源が実体にならないので、" >&2
+  echo "⚠ git-lfs が無い。games/donna-iro/assets/ の音源が実体にならないので、" >&2
   echo "  「埋め込み（本番）」は検査されない（mise install）。" >&2
 fi
 
@@ -81,7 +85,7 @@ combos=(
 
 # 本番音源があるときだけ、本番の埋め込みも見る。
 # 無いときに回すと include_bytes! が落ちるだけで、確かめたい事とは関係ない。
-if ls assets/*.wav >/dev/null 2>&1; then
+if ls games/donna-iro/assets/*.wav >/dev/null 2>&1; then
   combos+=("埋め込み（本番）     :--features embed:strict")
 fi
 
@@ -95,7 +99,7 @@ for entry in "${combos[@]}"; do
   args="${rest%:*}"
   mode="${rest##*:}"
   # shellcheck disable=SC2086
-  out="$(cargo clippy --all-targets $args 2>&1)"
+  out="$(cargo clippy --workspace --all-targets $args 2>&1)"
   code=$?
   warn="$(printf '%s' "$out" | grep -c '^warning:')"
 
@@ -134,7 +138,7 @@ printf '%s\n' "--------------------------------------------------------"
 #
 # 本当に macOS 専用の crate を足すときは、ここに許容リストが要る。
 target_deps() {
-  cargo tree --all-features --depth 1 --prefix none --target "$1" 2>/dev/null |
+  cargo tree --workspace --all-features --depth 1 --prefix none --target "$1" 2>/dev/null |
     awk '{print $1}' | sort -u
 }
 mac_deps="$(target_deps aarch64-apple-darwin)"
@@ -156,8 +160,11 @@ else
   fi
 fi
 
-if cargo test --all-targets >/tmp/donna-check-test.log 2>&1; then
-  printf '%-22s %s\n' "テスト" "$(grep -h '^test result' /tmp/donna-check-test.log | head -1)"
+if cargo test --workspace --all-targets >/tmp/donna-check-test.log 2>&1; then
+  # クレートごとに1行ずつ出るので、足し合わせて1行にする。
+  passed="$(grep -h '^test result' /tmp/donna-check-test.log |
+    sed -n 's/.* \([0-9][0-9]*\) passed.*/\1/p' | awk '{n += $1} END {print n + 0}')"
+  printf '%-22s %s\n' "テスト" "ok. ${passed} passed（ワークスペース全体）"
 else
   printf '%-22s %s\n' "テスト" "NG"
   grep -E 'FAILED|panicked|assertion' /tmp/donna-check-test.log | head -20
