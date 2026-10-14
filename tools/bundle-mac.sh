@@ -13,9 +13,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-NAME="donna-iro"
+NAME="child-games"
 APP="target/$NAME.app"
-BUNDLE_ID="com.mpyw.donna-iro"
+BUNDLE_ID="com.mpyw.child-games"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 
 # 素材の一覧はここに持たない。足りないものは include_bytes! が
@@ -61,8 +61,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleExecutable</key><string>$NAME</string>
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-  <key>CFBundleName</key><string>donna-iro</string>
-  <key>CFBundleDisplayName</key><string>donna-iro</string>
+  <key>CFBundleName</key><string>child-games</string>
+  <key>CFBundleDisplayName</key><string>child-games</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>

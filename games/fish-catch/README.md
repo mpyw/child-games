@@ -164,7 +164,7 @@ uv run --with numpy python3 games/fish-catch/tools/make_sounds.py
 > 白い線まで伸びれば足りている。
 >
 > ```sh
-> DONNA_IRO_GAMES__FISH_CATCH__SHOW_MOTION=true ./donna-iro --game fish-catch
+> CHILD_GAMES_GAMES__FISH_CATCH__SHOW_MOTION=true ./child-games --game fish-catch
 > ```
 
 | 困りごと | 動かすもの |

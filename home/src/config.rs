@@ -14,7 +14,7 @@
 //!
 //! **環境変数名はキーの位置から機械的に決まる。**
 //! 節とキーの区切りは `__`（2本）。`listen.max_seconds` なら
-//! `DONNA_IRO_LISTEN__MAX_SECONDS`。キー名自体に `_` が入るので、
+//! `CHILD_GAMES_LISTEN__MAX_SECONDS`。キー名自体に `_` が入るので、
 //! 節の区切りは別の記号にする必要がある。
 //!
 //! 同梱の `config.toml` に全項目と対応する環境変数名が書いてあるので、
@@ -286,7 +286,7 @@ impl Config {
 }
 
 /// 環境変数の接頭辞。
-const PREFIX: &str = "DONNA_IRO_";
+const PREFIX: &str = "CHILD_GAMES_";
 /// 節とキーの区切り。キー名に `_` が入るので2本にする。
 const NEST: &str = "__";
 

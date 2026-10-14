@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Raspberry Pi 5 向けに組んで、そのまま配る。
 #
-#   tools/build-pi.sh              組むだけ → target/pi/donna-iro
-#   tools/build-pi.sh pi5          組んで ssh 先の ~/donna-iro へ配る
+#   tools/build-pi.sh              組むだけ → target/pi/child-games
+#   tools/build-pi.sh pi5          組んで ssh 先の ~/child-games へ配る
 #   tools/build-pi.sh pi5 /opt/x   配る先を変える
 #
 #   FEATURES=whisper tools/build-pi.sh    feature を変える（既定は既定 feature）
@@ -26,17 +26,17 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 DEST="${1:-}"
-# **相対パスで持つ。** `~/donna-iro` と書くと手元のシェルが先に展開して
+# **相対パスで持つ。** `~/child-games` と書くと手元のシェルが先に展開して
 # Mac のホームになる。相対なら ssh 先のホームからの相対として素直に効く。
-DEST_DIR="${2:-donna-iro}"
-IMAGE="donna-iro-pi-builder"
+DEST_DIR="${2:-child-games}"
+IMAGE="child-games-pi-builder"
 # Pi の OS。**ここを Pi より新しくしてはいけない**（glibc が前方互換でない）。
 BASE="debian:trixie-slim"
 # 名前つきボリューム。**macOS 側の target/ と混ぜてはいけない。**
 # 同じディレクトリを共有すると、ホストとコンテナでビルドが互いを
 # 作り直し続けて毎回フルビルドになる。
-VOL_TARGET="donna-iro-pi-target"
-VOL_CARGO="donna-iro-pi-cargo"
+VOL_TARGET="child-games-pi-target"
+VOL_CARGO="child-games-pi-cargo"
 
 command -v docker >/dev/null 2>&1 || {
   echo "docker が無い。" >&2
@@ -102,9 +102,9 @@ docker run --rm --platform linux/arm64 \
 mkdir -p target/pi
 docker run --rm --platform linux/arm64 \
   -v "$VOL_TARGET":/target -v "$ROOT/target/pi":/out \
-  "$IMAGE" cp /target/release/donna-iro /out/donna-iro
+  "$IMAGE" cp /target/release/child-games /out/child-games
 
-BIN="target/pi/donna-iro"
+BIN="target/pi/child-games"
 echo
 echo "できた: $ROOT/$BIN ($(du -h "$BIN" | cut -f1))"
 
@@ -150,7 +150,7 @@ if [ -n "$missing" ]; then
   echo "  sudo apt install libasound2 libstdc++6 libx11-6 libxkbcommon0" >&2
 fi
 
-rsync -a "$BIN" "$DEST:$DEST_DIR/donna-iro"
+rsync -a "$BIN" "$DEST:$DEST_DIR/child-games"
 rsync -a config.toml "$DEST:$DEST_DIR/config.toml"
 
 # 遊びごとに、本番音源があればそれ、無ければ確認用の合成音。**実行時の
@@ -178,7 +178,7 @@ else
 fi
 
 # shellcheck disable=SC2029  # $DEST_DIR は手元で展開して送るのが意図
-ssh "$DEST" "chmod +x '$DEST_DIR/donna-iro'"
+ssh "$DEST" "chmod +x '$DEST_DIR/child-games'"
 
 # --- OS 側の設定 ---
 #
@@ -241,6 +241,6 @@ deploy_conf pi/kanshi-config .config/kanshi/config \
 echo
 # shellcheck disable=SC2029  # $DEST_DIR は手元で展開して送るのが意図
 echo "完了: $DEST:$DEST_DIR ($(ssh "$DEST" "du -sh '$DEST_DIR'" | cut -f1))"
-echo "  ssh $DEST 'cd $DEST_DIR && ./donna-iro --terminal --keyboard'"
+echo "  ssh $DEST 'cd $DEST_DIR && ./child-games --terminal --keyboard'"
 echo
 echo "ウィンドウを開くにはデスクトップにログインしていること（コンソールでは開けない）。"

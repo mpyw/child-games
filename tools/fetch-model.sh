@@ -10,7 +10,7 @@
 # モデルはリポジトリには置かない（LFS の無駄）。
 # 使うモデルは config.toml の paths.model か、その環境変数で切り替える。
 #
-#   DONNA_IRO_PATHS__MODEL=models/ggml-tiny.bin cargo run
+#   CHILD_GAMES_PATHS__MODEL=models/ggml-tiny.bin cargo run
 
 set -euo pipefail
 
@@ -55,5 +55,5 @@ echo "完了: $FILE ($(du -h "$FILE" | cut -f1))"
 if [ "$MODEL" != "base" ]; then
   echo
   echo "既定は models/ggml-base.bin です。これを使うには:"
-  echo "  DONNA_IRO_PATHS__MODEL=$FILE cargo run"
+  echo "  CHILD_GAMES_PATHS__MODEL=$FILE cargo run"
 fi

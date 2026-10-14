@@ -171,7 +171,7 @@ impl Listener for Mic {
 /// 速度の心配も要らない。ラズパイで遅ければ tiny に落とすか、
 /// `audio_ctx` を下げる。
 ///
-/// `paths.model`（`DONNA_IRO_PATHS__MODEL`）を指定すればファイルから読む。
+/// `paths.model`（`CHILD_GAMES_PATHS__MODEL`）を指定すればファイルから読む。
 /// 埋め込みビルドでもこれが優先されるので、別のモデルを試したいときに使える。
 /// モデルを読む。
 ///
