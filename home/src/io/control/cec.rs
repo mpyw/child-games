@@ -20,6 +20,13 @@
 //! `Enter` には一生ならないので、押しても無反応になる。だから evdev を
 //! 直接読む。
 //!
+//! # ウィンドウにも届くキーは読まない
+//!
+//! このデバイスは udev で `ID_INPUT_KEY=1` が付くので、**コンポジタは
+//! キーボードとして扱い、十字キーはウィンドウにもそのまま届く**（実測）。
+//! ここでも読むと1回押して2回届き、メニューが2つずつ進む。だからここで
+//! 拾うのは、**ウィンドウが知らないキー（決定・戻る）だけ**にする。
+//!
 //! # 依存を足さない
 //!
 //! `input_event` は 24 バイトの固定長なので、`std::fs` で読んで自前で解けば
@@ -53,14 +60,14 @@ const PRESSED: i32 = 1;
 ///
 /// **`KEY_OK` だけに絞らない。** CEC の UI コマンドをどのキーに割り当てるかは
 /// カーネルのキーマップとテレビの実装しだいで、Bravia は `KEY_OK` だったが
-/// 他社が `KEY_SELECT` や `KEY_ENTER` を出す余地はある。**どれで来ても同じ
-/// 意味なので、広く受けて構わない。** 取りこぼすほうが損。
+/// 他社が `KEY_SELECT` を出す余地はある。
+///
+/// **`KEY_ENTER` と `KEY_SPACE` は入れない。** ウィンドウが決定として
+/// 読んでいるので、ここでも読むと2回決定したことになる。
 const OK: &[u16] = &[
     352, // KEY_OK
     353, // KEY_SELECT
-    28,  // KEY_ENTER
-    96,  // KEY_KPENTER
-    57,  // KEY_SPACE
+    96,  // KEY_KPENTER（ウィンドウは読んでいない）
 ];
 
 /// 戻ると読むキー。
@@ -73,13 +80,16 @@ const BACK: &[u16] = &[
     158, // KEY_BACK
 ];
 
-/// 十字キー。**効くのはメニューだけ。** 遊んでいる最中は `stop_requested`
-/// が「戻る」しか見ないので、押し間違えても歌は切れない。
-const ARROWS: &[(u16, Press)] = &[
-    (103, Press::Up),    // KEY_UP
-    (108, Press::Down),  // KEY_DOWN
-    (105, Press::Left),  // KEY_LEFT
-    (106, Press::Right), // KEY_RIGHT
+/// ウィンドウにも届くキー。**ここでは読まない**（上の「ウィンドウにも届く
+/// キーは読まない」）。十字キーはウィンドウ経由でメニューに効く。
+const WINDOW_SEES: &[u16] = &[
+    103, // KEY_UP
+    108, // KEY_DOWN
+    105, // KEY_LEFT
+    106, // KEY_RIGHT
+    28,  // KEY_ENTER
+    57,  // KEY_SPACE
+    14,  // KEY_BACKSPACE
 ];
 
 /// 見張るデバイスの名前。
@@ -112,13 +122,16 @@ fn pressed(rec: &[u8]) -> Option<Press> {
     if typ != EV_KEY || value != PRESSED {
         return None;
     }
+    if WINDOW_SEES.contains(&code) {
+        return None;
+    }
     if OK.contains(&code) {
         return Some(Press::Ok);
     }
     if BACK.contains(&code) {
         return Some(Press::Back);
     }
-    ARROWS.iter().find(|(c, _)| *c == code).map(|(_, p)| *p)
+    None
 }
 
 /// 見張る `/dev/input/eventN` を集める。
@@ -230,29 +243,19 @@ mod tests {
     /// すぐ再開する、という挙動になる。
     #[test]
     fn no_key_means_two_things() {
-        let arrows: Vec<u16> = ARROWS.iter().map(|(c, _)| *c).collect();
         for code in OK {
             assert!(!BACK.contains(code), "code={code} が決定と戻るの両方にある");
-            assert!(
-                !arrows.contains(code),
-                "code={code} が決定と十字キーの両方にある"
-            );
-        }
-        for code in BACK {
-            assert!(
-                !arrows.contains(code),
-                "code={code} が戻ると十字キーの両方にある"
-            );
         }
     }
 
-    /// 十字キーは向きのまま届く。**メニューで選ぶのに要る。**
+    /// **ウィンドウにも届くキーは読まない。** 読むと1回押して2回届き、
+    /// メニューが2つずつ進む（実機で起きた）。
     #[test]
-    fn the_arrows_move_the_selection() {
-        assert_eq!(pressed(&event(EV_KEY, 103, PRESSED)), Some(Press::Up));
-        assert_eq!(pressed(&event(EV_KEY, 108, PRESSED)), Some(Press::Down));
-        assert_eq!(pressed(&event(EV_KEY, 105, PRESSED)), Some(Press::Left));
-        assert_eq!(pressed(&event(EV_KEY, 106, PRESSED)), Some(Press::Right));
+    fn keys_the_window_also_gets_are_left_to_it() {
+        for code in WINDOW_SEES {
+            assert!(!OK.contains(code) && !BACK.contains(code), "code={code}");
+            assert_eq!(pressed(&event(EV_KEY, *code, PRESSED)), None, "code={code}");
+        }
     }
 
     /// **離上と自動連打は数えない。** 長押し1回で何度も飛ぶと、
