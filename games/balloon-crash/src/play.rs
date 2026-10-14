@@ -5,7 +5,7 @@
 //!              │   動いた所を出す → 重なった風船を割る（効果音）
 //!              │   風船を足す・浮かせる・抜けたら消す → 鏡と風船を映す
 //!              └── song が鳴り終わるまで（「戻る」なら途中で抜ける）
-//!          ─→ fanfare（割った風船を並べる）
+//!          ─→ fanfare（割った数と、割った風船を並べる）
 //! ```
 //!
 //! ここで返る。「もう1回」を訊くのは `home` の仕事。
@@ -111,7 +111,11 @@ impl kit::Game for BalloonCrash {
     }
 
     fn title(&self) -> &'static str {
-        "ふうせん パン！"
+        "ふうせんタッチ"
+    }
+
+    fn glyphs(&self) -> &'static str {
+        look::GLYPHS
     }
 
     fn sounds(&self) -> &'static [&'static str] {

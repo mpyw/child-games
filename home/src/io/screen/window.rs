@@ -353,7 +353,7 @@ mod tests {
         let f = font();
         let titles = crate::catalog(&crate::config::Config::default())
             .iter()
-            .map(|g| g.title())
+            .flat_map(|g| [g.title(), g.glyphs()])
             .collect::<Vec<_>>();
         for s in crate::menu::LABELS.iter().chain(&titles) {
             for ch in s.chars() {

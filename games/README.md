@@ -6,7 +6,7 @@
 | 遊び | 中身 |
 | --- | --- |
 | [`donna-iro/`](donna-iro/README.md) | どんないろがすき？ 色名を聞き取って、その色の節を歌う。マイクを使う |
-| [`balloon-crash/`](balloon-crash/README.md) | ふうせん パン！ 鏡に映った自分で風船に触って割る。カメラを使う |
+| [`balloon-crash/`](balloon-crash/README.md) | ふうせんタッチ 鏡に映った自分で風船に触って割る。カメラを使う |
 
 ## 遊びがすること・しないこと
 
@@ -45,6 +45,7 @@
 | --- | --- |
 | `id` | `--game` で指す名前。素材の在処 `games/<id>/assets/` もこれで決まる |
 | `title` | メニューに出す題 |
+| `glyphs` | 題のほかに画面に出す字（点数の数字など）。無ければ書かなくてよい |
 | `sounds` | 鳴らしうる素材の名前の全部。`home` が起動時に揃っているかを確かめる |
 | `icon` | メニューの札に描く絵。渡された `area` の中に収める |
 | `backdrop` | 「もう1回」の画面で後ろに敷く絵 |
@@ -169,7 +170,7 @@
 | `home/src/config.rs` | `Games` に節を足す（つまみがあれば） |
 | `config.toml` | `[games.<name>]` の節を、コメントと環境変数名つきで足す |
 | `home/src/io/audio/assets.rs` | 埋め込みの表 `FILES` に1つ、表への載せ忘れを見る const の検査に1行足す |
-| `home/fonts/` | 題の字を足してサブセットし直す。手順は [`home/fonts/README.md`](../home/fonts/README.md) |
+| `home/fonts/` | 題と `glyphs` の字を足してサブセットし直す。手順は [`home/fonts/README.md`](../home/fonts/README.md) |
 | `README.md`（ルート）とこの README | 遊びの表に1行足す |
 
 配布のスクリプト（`build-pi.sh`、`bundle-mac.sh`、`check.sh`）は
@@ -180,5 +181,5 @@
 > かな5文字より長い答えを聞く遊びでは、答えが途中で切れる。
 > 詳しくは [`home/README.md`](../home/README.md#その他の速度設定)。
 
-題の字がフォントに無ければ `home` のテスト（`every_label_on_screen_is_in_the_font`）が
+題や `glyphs` の字がフォントに無ければ `home` のテスト（`every_label_on_screen_is_in_the_font`）が
 落ちる。足したら `tools/check.sh` を通すこと。

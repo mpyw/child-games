@@ -73,7 +73,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <string>「どんないろがすき？」の答えを聞き取るためにマイクを使います。</string>
   <!-- カメラも同じ。無いと開いた瞬間に落とされる。映像は画面に出すだけ。 -->
   <key>NSCameraUsageDescription</key>
-  <string>「ふうせん パン！」で、画面に自分の姿を映して風船に触るためにカメラを使います。映像は保存も送信もしません。</string>
+  <string>「ふうせんタッチ」で、画面に自分の姿を映して風船に触るためにカメラを使います。映像は保存も送信もしません。</string>
 </dict>
 </plist>
 PLIST

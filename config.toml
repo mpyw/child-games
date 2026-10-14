@@ -163,7 +163,7 @@ head_segments = 2
 
 
 [games.balloon_crash]
-# ふうせん パン！
+# ふうせんタッチ
 
 # 画面に同時に出す風船の数。1〜6。多いと、どれを狙うかで迷う。
 #   DONNA_IRO_GAMES__BALLOON_CRASH__MAX_BALLOONS

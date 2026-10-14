@@ -46,7 +46,7 @@ pub struct Games {
     ///
     /// 節の名前は `-` ではなく `_`。環境変数の名前に `-` は使えない。
     pub donna_iro: donna_iro::Config,
-    /// ふうせん パン！
+    /// ふうせんタッチ
     pub balloon_crash: balloon_crash::Config,
 }
 
