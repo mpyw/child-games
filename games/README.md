@@ -7,7 +7,7 @@
 | --- | --- |
 | [`donna-iro/`](donna-iro/README.md) | どんないろがすき？ 色名を聞き取って、その色の節を歌う。マイクを使う |
 | [`balloon-crash/`](balloon-crash/README.md) | ふうせんタッチ 鏡に映った自分で風船に触って割る。カメラを使う |
-| [`fish-catch/`](fish-catch/README.md) | おさかなキャッチ！ 池の魚をつかみ、両手で振り上げて釣る。カメラを使う |
+| [`fish-catch/`](fish-catch/README.md) | おさかなキャッチ！ 池の魚をつかみ、振り上げて釣る。カメラを使う |
 
 ## 遊びがすること・しないこと
 
@@ -38,7 +38,7 @@
 | `kit/src/listener.rs` | `Listener` と `Heard`。子どもの答えを1回聞き取る |
 | `kit/src/camera.rs` | `Camera`。縮めて左右を反転した絵を1枚ずつ受け取る |
 | `kit/src/control.rs` | `Control` と `Press`。押されたものを受け取る |
-| `kit/src/screen.rs` | `Scene`、`Shape`、`Image`。描く図形、後ろに敷く絵、ターミナルに出す1行 |
+| `kit/src/screen.rs` | `Scene`、`Shape`、`Image`。描く図形（丸、角丸、三角、文字、ボタン）、後ろに敷く絵、ターミナルに出す1行 |
 
 `Game` で実装するもの:
 
@@ -53,7 +53,7 @@
 | `play` | ひと続き遊ぶ。「もう1回」は訊かずに返る |
 
 画面は 1280×720 のキャンバス（`kit::WIDTH` / `kit::HEIGHT`）に図形を並べるだけ。
-描き手は丸と角丸と文字を塗るだけで、何の遊びかを知らない。後ろに1枚だけ絵
+描き手は丸と角丸と三角と文字を塗るだけで、何の遊びかを知らない。後ろに1枚だけ絵
 （`Scene::image`）を敷ける。カメラの鏡像をそのまま渡せる。
 
 ### 装置の使い方
