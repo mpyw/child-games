@@ -23,7 +23,7 @@ window = ["dep:minifb", "dep:fontdue"]
 # --- バイナリへの埋め込み ---
 #
 # include_bytes! はコンパイル時に実体を要求するので、先に取得しておくこと。
-#   git -C assets lfs pull && tools/fetch-model.sh
+#   git -C games/donna-iro/assets lfs pull && tools/fetch-model.sh
 #   cargo build --release --features embed
 #
 # 両方入れると 1ファイル置くだけで、音源もモデルも要らずに動く。
