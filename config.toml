@@ -178,3 +178,32 @@ threshold = 28
 # 下げるほど指先でも割れる。上げると体ごとぶつからないと割れない。
 #   DONNA_IRO_GAMES__BALLOON_CRASH__TOUCH_RATIO
 touch_ratio = 0.2
+
+
+[games.fish_catch]
+# おさかなキャッチ！
+
+# 池に同時に泳がせる魚の数。1〜4。
+#   DONNA_IRO_GAMES__FISH_CATCH__MAX_FISH
+max_fish = 2
+
+# 明るさがこれだけ変わったら「動いた」とみなす（1〜255）。
+#   DONNA_IRO_GAMES__FISH_CATCH__THRESHOLD
+threshold = 24
+
+# 魚のまわりで、これだけの割合が動いたら「つかんだ」とみなす（0 より大きく 1 以下）。
+# 低く取ってある。数に入るのは明るさが変わった升目、つまり手の縁だけなので、
+# 魚のまわりで手を揺らしても 5〜10% にしかならない。
+#   DONNA_IRO_GAMES__FISH_CATCH__GRAB_RATIO
+grab_ratio = 0.05
+
+# 釣れる振り上げの速さ（キャンバス 1280×720 の画素 / 秒）。50〜1400。
+# 左右とも、これ以上で上へ動けば釣れる。逃げるたびに下がり（最大で半分）、
+# 3回続けて逃げたら片手でも釣れる。釣れたら元に戻る。
+#   DONNA_IRO_GAMES__FISH_CATCH__SWING_SPEED
+swing_speed = 420.0
+
+# 動きの向き（上は緑、下は赤）と、振り上げの強さの棒を画面に出す。
+# 棒が白い線まで伸びれば足りている。しきい値を決めるときに使う。
+#   DONNA_IRO_GAMES__FISH_CATCH__SHOW_MOTION
+show_motion = false

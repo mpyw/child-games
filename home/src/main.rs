@@ -33,6 +33,7 @@ fn catalog(cfg: &config::Config) -> Vec<Box<dyn Game>> {
     vec![
         Box::new(donna_iro::DonnaIro::new(&cfg.games.donna_iro)),
         Box::new(balloon_crash::BalloonCrash::new(&cfg.games.balloon_crash)),
+        Box::new(fish_catch::FishCatch::new(&cfg.games.fish_catch)),
     ]
 }
 

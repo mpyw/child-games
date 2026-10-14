@@ -83,6 +83,7 @@ dependencies = [
  "kit",
  "rand",
  "serde",
+ "vision",
 ]
 
 [[package]]
@@ -534,6 +535,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
+name = "fish-catch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kit",
+ "rand",
+ "serde",
+ "vision",
+]
+
+[[package]]
 name = "flume"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -733,6 +745,7 @@ dependencies = [
  "cpal",
  "donna-iro",
  "figment",
+ "fish-catch",
  "fontdue",
  "kit",
  "minifb",
@@ -2034,6 +2047,13 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vision"
+version = "0.1.0"
+dependencies = [
+ "kit",
+]
 
 [[package]]
 name = "walkdir"

@@ -7,9 +7,9 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use kit::{Image, Rect, Rgb, Scene, Shape, HEIGHT, WIDTH};
+use vision::Moved;
 
 use crate::field::{Field, BURST, COLORS};
-use crate::motion::Moved;
 
 /// 鏡の暗さ。**風船が主役。** 明るいままだと風船が背景に紛れる。
 /// 暗くしすぎると自分が見えず、どこを触ればいいか分からない。
