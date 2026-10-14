@@ -284,13 +284,18 @@ mod tests {
     /// カメラの絵から魚の判定まで、通しで。`hands` は魚の位置と時刻から、
     /// 左右の手の位置を返す。釣れたか・逃げたかを返す。
     fn act(hands: impl Fn(f32, f32, f32) -> [(i32, i32); 2]) -> Vec<Event> {
+        act_at(30.0, hands)
+    }
+
+    /// `act` を、カメラが毎秒 `fps` 枚のときで。
+    fn act_at(fps: f32, hands: impl Fn(f32, f32, f32) -> [(i32, i32); 2]) -> Vec<Event> {
         let cfg = Config {
             max_fish: 1,
             ..Config::default()
         };
         let mut pond = Pond::new(&cfg, 21);
         let mut flow = Flow::default();
-        let dt = 1.0 / 30.0;
+        let dt = 1.0 / fps;
         let mut t = Duration::ZERO;
         // 魚が画面の真ん中あたりまで泳いでくるのを待つ。
         while pond.fish().is_empty() || !(300.0..980.0).contains(&pond.fish()[0].x) {
@@ -298,7 +303,7 @@ mod tests {
             pond.step(t, dt, |_| Seen::default());
         }
         let mut events = Vec::new();
-        for i in 0..60 {
+        for i in 0..(fps * 2.0) as usize {
             t += Duration::from_secs_f32(dt);
             let (fx, fy) = (pond.fish()[0].x, pond.fish()[0].y);
             let [l, r] = hands(fx, fy, i as f32 * dt);
@@ -331,6 +336,14 @@ mod tests {
     fn both_hands_swung_up_catch_through_the_camera() {
         let ev = act(lift(750.0, 750.0));
         assert!(ev.contains(&Event::Grab), "つかめていない: {ev:?}");
+        assert!(ev.contains(&Event::Catch), "釣れていない: {ev:?}");
+    }
+
+    /// **ラズパイのカメラ（毎秒13枚）でも、勢いよく振り上げれば釣れる。**
+    /// 1枚あたりのずれが大きくなるので、探す幅が足りないと取りこぼす。
+    #[test]
+    fn a_fast_swing_catches_even_with_a_slow_camera() {
+        let ev = act_at(13.0, lift(900.0, 900.0));
         assert!(ev.contains(&Event::Catch), "釣れていない: {ev:?}");
     }
 

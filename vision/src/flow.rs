@@ -24,14 +24,21 @@ pub const ROWS: usize = 90;
 /// 1升のキャンバスでの大きさ。
 const CELL: f32 = WIDTH as f32 / COLS as f32;
 
-/// 1枚あたり探すずれの幅（升）。8 画素 × 6 = 48 画素。毎秒30枚なら、
-/// 毎秒 1440 画素までの速さを測れる。2歳児の振り上げはこれに収まる。
-const REACH: i32 = 6;
+/// 1枚あたり探すずれの幅（升）。8 画素 × 10 = 80 画素。
+///
+/// **測れる速さの上限は、カメラの枚数で決まる。** 毎秒30枚なら毎秒 2400
+/// 画素、毎秒13枚なら毎秒 1040 画素まで。ラズパイの V15AF は暗い部屋で
+/// 毎秒13枚ほどに落ちる（実測）。6 升にしていた頃は毎秒 620 画素までしか
+/// 測れず、勢いよく振り上げるほど取りこぼした。
+const REACH: i32 = 10;
 
 /// **ずらして良くなった度合いがこれ未満なら、向きは分からないとする。**
 /// 一面同じ色の所は、どこへずらしても同じように合う。そこで決めた向きは
 /// 当てずっぽうになる。ずらさないときより 4 割以上よく合ったものだけ残す。
 const CONFIDENT: f32 = 0.6;
+
+/// 一番よく合ったものとの差がこれ以内なら、同じくらい合うとみなす（明るさの平均）。
+const AMBIGUOUS: f32 = 1.0;
 
 /// 前の絵を覚えておいて、動きを出す。
 #[derive(Default)]
@@ -181,20 +188,24 @@ fn center(i: usize) -> (f32, f32) {
 fn track(prev: &[u8], now: &[u8], x: i32, y: i32) -> Option<(f32, f32)> {
     let cost = |dx: i32, dy: i32| sad(prev, now, x, y, dx, dy);
     let still = cost(0, 0)?;
-    // **同じくらい合うなら、ずれの小さいほうを採る。** 縁が直線に近い所は、
-    // 縁に沿ってずらしてもほとんど同じに合う。探す順の先頭（上）を採って
-    // いた頃は、横に動いただけで上向きに偏った。
-    let far = |dx: i32, dy: i32| dx * dx + dy * dy;
+    let mut costs = Vec::with_capacity(((2 * REACH + 1) * (2 * REACH + 1)) as usize);
     let mut best = (0, 0, still);
     for dy in -REACH..=REACH {
         for dx in -REACH..=REACH {
             if let Some(c) = cost(dx, dy) {
-                let tie = (c - best.2).abs() < 0.5;
-                if (c < best.2 && !tie) || (tie && far(dx, dy) < far(best.0, best.1)) {
+                costs.push(c);
+                if c < best.2 {
                     best = (dx, dy, c);
                 }
             }
         }
+    }
+    // **一番よく合うずれが1つに決まらなければ、向きは分からないとする。**
+    // 一面同じ色の所や、まっすぐな縁の上は、縁に沿ってずらしてもほとんど同じに
+    // 合う。そこで小さいずれを選ぶと速さを低く見積もり、先頭を選ぶと向きが偏る。
+    let near = costs.iter().filter(|&&c| c <= best.2 + AMBIGUOUS).count();
+    if near > 3 {
+        return None;
     }
     let (bx, by, c0) = best;
     if (bx, by) == (0, 0) || c0 > still * CONFIDENT {
@@ -265,6 +276,23 @@ mod tests {
 
         let down = between(&blob(640, 390, 70), &blob(640, 420, 70)).region(AROUND);
         assert!(down.up < -20.0, "下へ動いたのに上向きに見えた: {down:?}");
+    }
+
+    /// **カメラの枚数が少なくても、速い振り上げを取りこぼさない。** 毎秒13枚で
+    /// 毎秒 900 画素なら、1枚あたり 70 画素動く。
+    #[test]
+    fn a_fast_swing_between_sparse_frames_is_measured() {
+        let fast = between(&blob(640, 480, 70), &blob(640, 410, 70)).region(Rect {
+            x: 440,
+            y: 150,
+            w: 400,
+            h: 450,
+        });
+        assert!(fast.vectors > 10, "{fast:?}");
+        assert!(
+            (55.0..85.0).contains(&fast.up),
+            "上へ 70 画素のはず: {fast:?}"
+        );
     }
 
     /// 横へ動いただけなら、上向きの速さはほぼ 0。
