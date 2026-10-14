@@ -36,11 +36,16 @@ pub const WATER: f32 = HEIGHT as f32 * 0.5;
 pub const BODY: (f32, f32) = (230.0, 110.0);
 
 /// 魚が泳ぐ高さの帯。水面より下で、子どもの手が届く所。
-const DEPTH: (f32, f32) = (HEIGHT as f32 * 0.62, HEIGHT as f32 * 0.84);
+///
+/// 3匹が深さで重なりにくい幅を取る（体の高さ 110 画素 × 2 より広く）。
+const DEPTH: (f32, f32) = (HEIGHT as f32 * 0.58, HEIGHT as f32 * 0.88);
 /// 泳ぐ速さ（毎秒の画素）。目で追える速さにする。
 const SWIM: f32 = 90.0;
 /// 逃げた直後の速さ。慌てて泳いでいく。
 const DASH: f32 = 260.0;
+/// 放っておかれて出ていく速さ。**泳ぐより少し速く、逃げるより遅く。**
+/// 遅いと池が空いたままになり、速いと逃げたように見える。
+const LEAVE: f32 = 140.0;
 /// 手が入ってから「つかんだ」とみなすまで。一瞬かすっただけではつかまない。
 const GRAB: Duration = Duration::from_millis(150);
 /// 手が入ったあと、動きがこれだけ途切れたら、入っていないことにする。
@@ -66,6 +71,10 @@ const FLEE: Duration = Duration::from_millis(1200);
 const REFILL: Duration = Duration::from_millis(1200);
 /// 次の魚を出すまでの間（泳がせ始め）。いっぺんに出すと、どれを狙うかで迷う。
 const STAGGER: Duration = Duration::from_millis(1500);
+/// **放っておかれた魚は、この間のどこかで出ていく**（秒）。空いたぶんは別の色の
+/// 魚が入ってくる。同じ魚が往復し続けるだけだと、見ていて飽きる。魚ごとに
+/// ずらすのは、いっせいに出ていかないように。
+const STAY: (f32, f32) = (12.0, 18.0);
 
 /// 逃げるたびに、釣れる速さにこれを掛ける。
 const EASE: f32 = 0.85;
@@ -129,6 +138,14 @@ pub struct Fish {
     pub state: State,
     /// これより前はつかめない（逃げた直後）。
     cool: Duration,
+    /// この時刻まで誰もつかまなければ、出ていく。
+    stay: Duration,
+    /// 出ていく途中。**端で折り返さず、画面の外へ抜けたら消える。** 途中でも
+    /// つかめば、普通に釣れる。
+    pub leaving: bool,
+    /// 何匹目に出した魚か。入れ替わったかを見分けるのに使う（テスト）。
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub id: u32,
     /// 揺れ方をずらす。
     pub phase: f32,
 }
@@ -139,6 +156,8 @@ pub struct Pond {
     /// 続けて逃げた数。釣れたら 0 に戻す。
     slips: u32,
     next_spawn: Duration,
+    /// これまでに出した魚の数。
+    spawned: u32,
     max: usize,
     grab: f32,
     swing: f32,
@@ -178,6 +197,7 @@ impl Pond {
             caught: Vec::new(),
             slips: 0,
             next_spawn: Duration::ZERO,
+            spawned: 0,
             max: cfg.max_fish,
             grab: cfg.grab_ratio,
             swing: cfg.swing_speed,
@@ -221,21 +241,40 @@ impl Pond {
         let (need, one_hand) = (self.need(), self.one_hand());
         let mut slipped = 0;
         let mut landed = Vec::new();
+        let mut gone = Vec::new();
+        let mut rng = StdRng::seed_from_u64(self.rng.gen());
+        let mut stay = || now + Duration::from_secs_f32(rng.gen_range(STAY.0..STAY.1));
+        // **出ていくのは1匹ずつ。** 重なると池が空っぽに見える。順番が来ない
+        // 魚は、前の魚が抜けるまで待つ。
+        let mut leaving = self.fish.iter().any(|f| f.leaving);
         for (i, f) in self.fish.iter_mut().enumerate() {
             let s = seen(f);
             match f.state {
                 State::Swim { touched } => {
+                    // 放っておかれたら、近いほうの端へゆっくり出ていく。
+                    if !leaving && !f.leaving && touched.is_none() && now >= f.stay {
+                        f.leaving = true;
+                        leaving = true;
+                        f.facing = if f.x < WIDTH as f32 / 2.0 { -1.0 } else { 1.0 };
+                    }
                     let speed = if now < f.cool && f.cool.saturating_sub(now) > COOL - FLEE {
                         DASH
+                    } else if f.leaving {
+                        LEAVE
                     } else {
                         SWIM
                     };
                     f.x += f.facing * speed * dt;
-                    // 端で向きを変える。外から入ってくるときは向きを変えない。
-                    if (f.x < WIDTH as f32 * 0.1 && f.facing < 0.0)
-                        || (f.x > WIDTH as f32 * 0.9 && f.facing > 0.0)
+                    // 端で向きを変える。外から入ってくるときと、出ていくときは変えない。
+                    if !f.leaving
+                        && ((f.x < WIDTH as f32 * 0.1 && f.facing < 0.0)
+                            || (f.x > WIDTH as f32 * 0.9 && f.facing > 0.0))
                     {
                         f.facing = -f.facing;
+                    }
+                    if f.leaving && (f.x < -BODY.0 || f.x > WIDTH as f32 + BODY.0) {
+                        gone.push(i);
+                        continue;
                     }
                     let inside = f.x > 0.0 && f.x < WIDTH as f32;
                     let touching = inside && now >= f.cool && s.grab >= self.grab;
@@ -250,6 +289,7 @@ impl Pond {
                     f.state = match touched {
                         Some((first, last)) if last.saturating_sub(first) >= GRAB => {
                             events.push(Event::Grab);
+                            f.leaving = false;
                             State::Held {
                                 since: now,
                                 swing: None,
@@ -306,6 +346,7 @@ impl Pond {
                         // 跳ねて戻ったら、近いほうの端へ慌てて泳いでいく。
                         f.facing = if f.x < WIDTH as f32 / 2.0 { -1.0 } else { 1.0 };
                         f.cool = now + COOL;
+                        f.stay = stay();
                         f.state = State::Swim { touched: None };
                     }
                 }
@@ -316,20 +357,29 @@ impl Pond {
             self.next_spawn = self.next_spawn.max(now + REFILL);
         }
         self.slips += slipped;
-        for &i in landed.iter().rev() {
+        // 釣れた魚はバケツへ。出ていった魚は黙って消す。どちらも、空いた
+        // ぶんは下の `spawn` が埋める。
+        let mut out: Vec<(usize, bool)> = landed
+            .into_iter()
+            .map(|i| (i, true))
+            .chain(gone.into_iter().map(|i| (i, false)))
+            .collect();
+        out.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+        for (i, caught) in out {
             let f = self.fish.remove(i);
-            self.caught.push(f.color);
+            if caught {
+                self.caught.push(f.color);
+            }
         }
-        // 画面の外まで逃げた魚は、端で向きを変えて戻ってくる（`Swim` の中）。
         if self.fish.len() < self.max && now >= self.next_spawn {
-            self.spawn();
+            self.spawn(now);
             self.next_spawn = now + STAGGER;
         }
         events
     }
 
     /// 左右どちらかの外から1匹出す。内向きに泳いでくる。
-    fn spawn(&mut self) {
+    fn spawn(&mut self, now: Duration) {
         let from_left = self.rng.gen_bool(0.5);
         let x = if from_left {
             -BODY.0
@@ -352,8 +402,12 @@ impl Pond {
             facing: if from_left { 1.0 } else { -1.0 },
             state: State::Swim { touched: None },
             cool: Duration::ZERO,
+            stay: now + Duration::from_secs_f32(self.rng.gen_range(STAY.0..STAY.1)),
+            leaving: false,
+            id: self.spawned,
             phase: self.rng.gen_range(0.0..std::f32::consts::TAU),
         });
+        self.spawned += 1;
     }
 
     /// 画面のこの位置を押した（マウス）。**そこにいる魚をすぐ釣る。**
@@ -430,14 +484,80 @@ mod tests {
     #[test]
     fn fish_swim_back_and_forth_within_the_pond() {
         let mut p = Pond::new(&Config::default(), 3);
-        let (_, ev) = run(&mut p, Duration::ZERO, 30.0, Seen::default());
+        let (mut t, ev) = run(&mut p, Duration::ZERO, 8.0, Seen::default());
         assert!(ev.is_empty());
-        assert_eq!(p.fish().len(), 2);
-        for f in p.fish() {
-            assert!(f.x > -BODY.0 && f.x < WIDTH as f32 + BODY.0, "{f:?}");
-            assert!(f.y >= DEPTH.0 && f.y <= DEPTH.1, "{f:?}");
-            assert!(f.y > WATER, "水の上を泳いでいる: {f:?}");
+        assert_eq!(p.fish().len(), Config::default().max_fish);
+        for _ in 0..300 {
+            t = run(&mut p, t, FRAME, Seen::default()).0;
+            for f in p.fish() {
+                assert!(
+                    f.x > -BODY.0 * 1.1 && f.x < WIDTH as f32 + BODY.0 * 1.1,
+                    "{f:?}"
+                );
+                assert!(f.y >= DEPTH.0 && f.y <= DEPTH.1, "{f:?}");
+                assert!(f.y - BODY.1 / 2.0 > WATER, "水の上にはみ出した: {f:?}");
+            }
         }
+    }
+
+    /// **放っておかれた魚は出ていき、別の魚と入れ替わる。** 釣った数には入らない。
+    /// 泳いでいる数は保たれる。
+    #[test]
+    fn idle_fish_leave_and_are_replaced() {
+        let mut p = Pond::new(&Config::default(), 9);
+        let (t, _) = run(&mut p, Duration::ZERO, 6.0, Seen::default());
+        let first: Vec<u32> = p.fish().iter().map(|f| f.id).collect();
+        let mut t = t;
+        let mut saw_leaving = false;
+        for _ in 0..(40.0 / FRAME) as usize {
+            t = run(&mut p, t, FRAME, Seen::default()).0;
+            saw_leaving |= p.fish().iter().any(|f| f.leaving);
+        }
+        assert!(saw_leaving, "出ていく魚がいない");
+        let now: Vec<u32> = p.fish().iter().map(|f| f.id).collect();
+        assert!(
+            first.iter().all(|id| !now.contains(id)),
+            "入れ替わっていない: {first:?} → {now:?}"
+        );
+        assert!(p.fish().len() >= Config::default().max_fish - 1);
+        assert!(p.caught().is_empty(), "出ていった魚を釣ったことにした");
+    }
+
+    /// **いっせいに出ていかない。** 出ていく時刻は魚ごとにずれる。
+    #[test]
+    fn fish_do_not_all_leave_at_once() {
+        let mut p = Pond::new(&Config::default(), 4);
+        let mut t = Duration::ZERO;
+        let mut most = 0;
+        for _ in 0..(40.0 / FRAME) as usize {
+            t = run(&mut p, t, FRAME, Seen::default()).0;
+            most = most.max(p.fish().iter().filter(|f| f.leaving).count());
+        }
+        assert_eq!(most, 1, "2匹以上が同時に出ていった");
+    }
+
+    /// 出ていく途中でも、つかめば釣れる。つかまれたら出ていくのをやめる。
+    #[test]
+    fn a_leaving_fish_can_still_be_caught() {
+        let mut p = pond();
+        let mut t = Duration::ZERO;
+        while !p
+            .fish()
+            .first()
+            .is_some_and(|f| f.leaving && f.x > 50.0 && f.x < WIDTH as f32 - 50.0)
+        {
+            t = run(&mut p, t, FRAME, Seen::default()).0;
+            assert!(t < Duration::from_secs(40), "出ていかない");
+        }
+        let touch = Seen {
+            grab: 0.5,
+            ..Seen::default()
+        };
+        let (t, ev) = run(&mut p, t, 0.3, touch);
+        assert_eq!(ev, [Event::Grab]);
+        assert!(!p.fish()[0].leaving);
+        let (_, ev) = run(&mut p, t, 0.1, both(600.0));
+        assert_eq!(ev, [Event::Catch]);
     }
 
     /// **一瞬かすっただけではつかまない。**

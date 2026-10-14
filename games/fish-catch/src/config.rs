@@ -28,7 +28,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            max_fish: 2,
+            max_fish: 3,
             threshold: 24,
             grab_ratio: 0.05,
             swing_speed: 420.0,
