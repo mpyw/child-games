@@ -5,7 +5,8 @@
 編曲した色が音数的に破綻していないか、拍に乗っているかを
 OpenUtau で調声する前に耳で確かめるためのもの。
 
-出力は games/donna-iro/assets/reference/*.wav（gitignore 済み。再生成できるので）。
+出力は games/donna-iro/assets/reference/*.wav。再生成できる派生物だが、
+numpy の無いところ（ラズパイなど）でも鳴らせるようにコミットしてある。
 
     python3 tools/render_reference.py
 """
