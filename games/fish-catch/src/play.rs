@@ -16,13 +16,13 @@
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use kit::{Devices, Ended, Press, Rect, Rgb, Scene, Shape};
+use kit::{Devices, Ended, Press, Rect, Scene, Shape};
 use vision::{Flow, Flowed, Region};
 
 use crate::config::Config;
 use crate::cue::Cue;
 use crate::look;
-use crate::pond::{Event, Fish, Pond, Seen};
+use crate::pond::{Creature, Event, Fish, Pond, Seen};
 
 /// お祝いの間に画面を描き直す間隔。カメラを見ないので自分で刻む。
 const TICK: Duration = Duration::from_millis(33);
@@ -52,7 +52,7 @@ fn seen(flowed: &Flowed, f: &Fish, dt: f32) -> Seen {
 pub struct FishCatch {
     cfg: Config,
     /// 前の回に釣った魚。「もう1回」の画面で後ろに敷く。
-    caught: Vec<Rgb>,
+    caught: Vec<Creature>,
 }
 
 impl FishCatch {
@@ -331,7 +331,7 @@ mod tests {
         }
     }
 
-    /// **両手で勢いよく振り上げたら釣れる。** カメラの絵から通しで。
+    /// 両手で勢いよく振り上げたら釣れる。カメラの絵から通しで。
     #[test]
     fn both_hands_swung_up_catch_through_the_camera() {
         let ev = act(lift(750.0, 750.0));
@@ -347,11 +347,11 @@ mod tests {
         assert!(ev.contains(&Event::Catch), "釣れていない: {ev:?}");
     }
 
-    /// 片手だけだと逃げられる。カメラの絵から通しで。
+    /// **片手だけでも、勢いよく振り上げれば釣れる。** カメラの絵から通しで。
     #[test]
-    fn one_hand_swung_up_slips_through_the_camera() {
+    fn one_hand_swung_up_catches_through_the_camera() {
         let ev = act(lift(750.0, 0.0));
-        assert!(ev.contains(&Event::Slip), "逃げていない: {ev:?}");
+        assert!(ev.contains(&Event::Catch), "釣れていない: {ev:?}");
     }
 
     /// ゆっくり持ち上げると逃げられる。カメラの絵から通しで。

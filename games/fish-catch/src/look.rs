@@ -9,7 +9,7 @@ use std::time::Duration;
 use kit::{Image, Rect, Rgb, Scene, Shape, HEIGHT, WIDTH};
 use vision::Flowed;
 
-use crate::pond::{Fish, Pond, State, BODY, COLORS, FLIGHT, HOP, WATER};
+use crate::pond::{Creature, Fish, Kind, Pond, State, BODY, FLIGHT, HOP, WATER};
 
 /// 鏡の暗さ。水の上の部分。**魚が主役。** 明るいままだと魚が紛れる。
 const MIRROR: f32 = 0.6;
@@ -22,7 +22,7 @@ const BUCKET: (f32, f32) = (WIDTH as f32 - 120.0, 110.0);
 /// 遊んでいる間の場面。`motion` が `Some` なら、動きの向きと強さも出す。
 pub fn playing(mirror: &Image, pond: &Pond, now: Duration, motion: Option<&Flowed>) -> Scene {
     let mut shapes = waves(now);
-    shapes.extend(bucket(pond.caught()));
+    shapes.extend(bucket(pond.caught(), now));
     for f in pond.fish() {
         shapes.extend(fish_in_pond(f, now));
     }
@@ -65,9 +65,9 @@ pub fn score(n: usize) -> &'static str {
 ///
 /// 1匹も釣れなかったときも、色を全部並べて同じように祝う。2歳児に
 /// 「できなかった」を見せる理由は無い。
-pub fn finale(caught: &[Rgb], now: Duration) -> Scene {
-    let colors: Vec<Rgb> = if caught.is_empty() {
-        COLORS.to_vec()
+pub fn finale(caught: &[Creature], now: Duration) -> Scene {
+    let shown: Vec<Creature> = if caught.is_empty() {
+        Creature::parade()
     } else {
         caught.to_vec()
     };
@@ -86,7 +86,7 @@ pub fn finale(caught: &[Rgb], now: Duration) -> Scene {
             w: WIDTH,
             h: HEIGHT - top,
         },
-        &colors,
+        &shown,
         now,
     ));
     Scene {
@@ -96,7 +96,7 @@ pub fn finale(caught: &[Rgb], now: Duration) -> Scene {
     }
 }
 
-/// メニューの札に描く絵。水と、魚を2匹。
+/// メニューの札に描く絵。水と、魚とサメ。
 pub fn icon(area: Rect) -> Vec<Shape> {
     let water = Rect {
         x: area.x,
@@ -110,19 +110,29 @@ pub fn icon(area: Rect) -> Vec<Shape> {
         r: area.h / 12,
         fill: POND,
     }];
-    shapes.extend(fish(
+    let fish = Creature {
+        kind: Kind::Fish,
+        color: crate::pond::COLORS[0],
+    };
+    let shark = Creature {
+        kind: Kind::Shark,
+        color: (120, 140, 165),
+    };
+    shapes.extend(creature(
+        fish,
         area.x as f32 + area.w as f32 * 0.3,
         area.y as f32 + area.h as f32 * 0.42,
         s,
         1.0,
-        COLORS[0],
+        0.0,
     ));
-    shapes.extend(fish(
+    shapes.extend(creature(
+        shark,
         area.x as f32 + area.w as f32 * 0.68,
-        area.y as f32 + area.h as f32 * 0.72,
+        area.y as f32 + area.h as f32 * 0.74,
         s,
         -1.0,
-        COLORS[3],
+        0.0,
     ));
     shapes
 }
@@ -173,12 +183,12 @@ fn fish_in_pond(f: &Fish, now: Duration) -> Vec<Shape> {
     let t = now.as_secs_f32();
     let bob = (t * 2.0 + f.phase).sin() * 6.0;
     match f.state {
-        State::Swim { .. } => fish(f.x, f.y + bob, 1.0, f.facing, f.color),
+        State::Swim { .. } => creature(f.look, f.x, f.y + bob, 1.0, f.facing, t),
         // つかまれている。小刻みに跳ねて、まわりに光を出す。
         State::Held { .. } => {
             let wiggle = (t * 30.0).sin() * 7.0;
             let mut v = sparkles(f.x, f.y, t);
-            v.extend(fish(f.x + wiggle, f.y, 1.05, f.facing, f.color));
+            v.extend(creature(f.look, f.x + wiggle, f.y, 1.05, f.facing, t * 4.0));
             v
         }
         // 釣れた。水しぶきを上げて、弧を描いてバケツへ飛ぶ。
@@ -187,64 +197,214 @@ fn fish_in_pond(f: &Fish, now: Duration) -> Vec<Shape> {
             let x = f.x + (BUCKET.0 - f.x) * p;
             let y = f.y + (BUCKET.1 - f.y) * p - (p * std::f32::consts::PI).sin() * 220.0;
             let mut v = splash(f.x, WATER + 10.0, p, 1.0);
-            v.extend(fish(x, y, 1.0 - 0.65 * p, f.facing, f.color));
+            v.extend(creature(f.look, x, y, 1.0 - 0.65 * p, f.facing, t * 4.0));
             v
         }
         // 逃げた。少し跳ねて、水に戻る。
         State::Slipped { at } => {
             let p = (now.saturating_sub(at).as_secs_f32() / HOP.as_secs_f32()).min(1.0);
             let hop = (p * std::f32::consts::PI).sin() * 70.0;
-            let mut v = fish(f.x, f.y - hop, 1.0, -f.facing, f.color);
+            let mut v = creature(f.look, f.x, f.y - hop, 1.0, -f.facing, t);
             v.extend(splash(f.x, f.y - 20.0, p, 0.5));
             v
         }
     }
 }
 
-/// 魚1匹。尾、背びれ、体、目の順に重ねる。`(x, y)` が体の真ん中、`s` が大きさ。
-fn fish(x: f32, y: f32, s: f32, facing: f32, c: Rgb) -> Vec<Shape> {
+/// 池にいるもの1匹。`(x, y)` が体の真ん中、`s` が大きさ、`t` は揺れの時刻。
+///
+/// **どれも体の幅 230・高さ 110（`BODY`）の枠に収まるくらいに描く。** つかめる
+/// 範囲は種類によらず同じなので、見た目だけ大きいと、触ったのに逃げたように見える。
+fn creature(c: Creature, x: f32, y: f32, s: f32, facing: f32, t: f32) -> Vec<Shape> {
     let (w, h) = (BODY.0 * s, BODY.1 * s);
-    let dark = darken(c);
-    let at = |dx: f32, dy: f32| ((x + dx * facing) as i32, (y + dy) as i32);
-    let (tx, ty) = at(-w * 0.55, 0.0);
-    let (fx, fy) = at(-w * 0.05, -h * 0.45);
-    let (ex, ey) = at(w * 0.28, -h * 0.12);
-    vec![
+    let pen = Pen { x, y, s, facing };
+    match c.kind {
+        Kind::Fish => fish(&pen, w, h, c.color),
+        Kind::Puffer => puffer(&pen, h, c.color),
+        Kind::Octopus => octopus(&pen, w, h, c.color, t),
+        Kind::Shark => shark(&pen, w, h, c.color),
+    }
+}
+
+/// 描く位置の基準。体の真ん中と向き。
+struct Pen {
+    x: f32,
+    y: f32,
+    s: f32,
+    facing: f32,
+}
+
+impl Pen {
+    /// 真ん中から `(dx, dy)` ずらした丸。`dx` は向いている側が正。
+    fn dot(&self, dx: f32, dy: f32, r: f32, fill: Rgb) -> Shape {
         Shape::Circle {
-            x: tx,
-            y: ty,
-            r: (h * 0.42) as i32,
-            fill: dark,
-        },
-        Shape::Circle {
-            x: fx,
-            y: fy,
-            r: (h * 0.25) as i32,
-            fill: dark,
-        },
+            x: (self.x + dx * self.facing) as i32,
+            y: (self.y + dy) as i32,
+            r: (r as i32).max(1),
+            fill,
+        }
+    }
+
+    /// 真ん中から `(dx, dy)` ずらした、幅 `w`・高さ `h` の角丸（両端が丸い）。
+    fn capsule(&self, dx: f32, dy: f32, w: f32, h: f32, fill: Rgb) -> Shape {
+        let cx = self.x + dx * self.facing;
         Shape::RoundRect {
             rect: Rect {
-                x: (x - w / 2.0) as i32,
-                y: (y - h / 2.0) as i32,
-                w: w as i32,
-                h: h as i32,
+                x: (cx - w / 2.0) as i32,
+                y: (self.y + dy - h / 2.0) as i32,
+                w: (w as i32).max(1),
+                h: (h as i32).max(1),
             },
-            r: (h / 2.0) as i32,
-            fill: c,
-        },
-        Shape::Circle {
-            x: ex,
-            y: ey,
-            r: (h * 0.14).max(2.0) as i32,
-            fill: (250, 250, 250),
-        },
-        Shape::Circle {
-            x: ex + (h * 0.03 * facing) as i32,
-            y: ey,
-            r: (h * 0.07).max(1.0) as i32,
-            fill: (20, 20, 20),
-        },
-    ]
+            r: (w.min(h) / 2.0) as i32,
+            fill,
+        }
+    }
+
+    /// 真ん中から `(dx, dy)` ずらした3点を結ぶ三角形。
+    fn tri(&self, pts: [(f32, f32); 3], fill: Rgb) -> Shape {
+        Shape::Triangle {
+            points: pts.map(|(dx, dy)| ((self.x + dx * self.facing) as i32, (self.y + dy) as i32)),
+            fill,
+        }
+    }
+
+    /// 白目と黒目。黒目は向いている側へ少し寄せる。
+    fn eye(&self, dx: f32, dy: f32, r: f32) -> [Shape; 2] {
+        [
+            self.dot(dx, dy, r.max(2.0), (250, 250, 250)),
+            self.dot(dx + r * 0.25, dy, (r * 0.5).max(1.0), (20, 20, 20)),
+        ]
+    }
+}
+
+/// ふつうの魚。尾、背びれ、体、目の順に重ねる。
+fn fish(p: &Pen, w: f32, h: f32, c: Rgb) -> Vec<Shape> {
+    let dark = darken(c);
+    let mut v = vec![
+        p.tri(
+            [
+                (-w * 0.4, 0.0),
+                (-w * 0.72, -h * 0.48),
+                (-w * 0.72, h * 0.48),
+            ],
+            dark,
+        ),
+        p.tri(
+            [
+                (-w * 0.18, -h * 0.4),
+                (w * 0.12, -h * 0.4),
+                (-w * 0.24, -h * 0.78),
+            ],
+            dark,
+        ),
+        p.capsule(0.0, 0.0, w, h, c),
+    ];
+    v.extend(p.eye(w * 0.28, -h * 0.12, h * 0.14));
+    v
+}
+
+/// フグ。まんまるの体に小さなトゲ、大きな目、おちょぼ口。
+fn puffer(p: &Pen, h: f32, c: Rgb) -> Vec<Shape> {
+    let dark = darken(c);
+    let r = h * 0.62;
+    let mut v = vec![p.tri(
+        [
+            (-r * 0.8, 0.0),
+            (-r - h * 0.36, -h * 0.3),
+            (-r - h * 0.36, h * 0.3),
+        ],
+        dark,
+    )];
+    v.extend((0..12).map(|i| {
+        let a = i as f32 / 12.0 * std::f32::consts::TAU;
+        p.dot(a.cos() * r, a.sin() * r, h * 0.08, dark)
+    }));
+    v.push(p.dot(0.0, 0.0, r, c));
+    v.push(p.dot(-h * 0.05, h * 0.18, h * 0.12, dark));
+    v.extend(p.eye(r * 0.4, -r * 0.3, h * 0.2));
+    v.push(p.dot(r * 0.92, r * 0.18, h * 0.07, (120, 40, 40)));
+    v
+}
+
+/// タコ。丸い頭に、ゆらゆらする足を4本。目は2つ。
+fn octopus(p: &Pen, w: f32, h: f32, c: Rgb, t: f32) -> Vec<Shape> {
+    let dark = darken(c);
+    let mut v = Vec::new();
+    for (leg, &fx) in [-0.36f32, -0.12, 0.12, 0.36].iter().enumerate() {
+        for k in 0..3 {
+            let sway = (t * 3.0 + leg as f32 * 1.3 + k as f32 * 0.8).sin() * w * 0.04;
+            v.push(p.dot(
+                fx * w * 0.5 + sway,
+                h * (0.22 + 0.2 * k as f32),
+                h * (0.16 - 0.03 * k as f32),
+                if k % 2 == 0 { c } else { dark },
+            ));
+        }
+    }
+    v.push(p.dot(0.0, -h * 0.15, h * 0.55, c));
+    v.extend(p.eye(-h * 0.2, -h * 0.2, h * 0.13));
+    v.extend(p.eye(h * 0.2, -h * 0.2, h * 0.13));
+    v.push(p.dot(0.0, h * 0.08, h * 0.08, dark));
+    v
+}
+
+/// サメ。長い体に尖った鼻、白いお腹、三角の高い背びれ、二股の尾、えら。
+fn shark(p: &Pen, w: f32, h: f32, c: Rgb) -> Vec<Shape> {
+    let dark = darken(c);
+    let belly = (232, 238, 244);
+    let mut v = vec![
+        // 二股の尾。上が大きい。
+        p.tri(
+            [
+                (-w * 0.48, -h * 0.08),
+                (-w * 0.78, -h * 0.62),
+                (-w * 0.64, 0.0),
+            ],
+            dark,
+        ),
+        p.tri(
+            [
+                (-w * 0.48, h * 0.06),
+                (-w * 0.74, h * 0.46),
+                (-w * 0.64, 0.0),
+            ],
+            dark,
+        ),
+        // 背びれ。高く、後ろへ倒す。
+        p.tri(
+            [
+                (-w * 0.14, -h * 0.3),
+                (w * 0.14, -h * 0.3),
+                (-w * 0.16, -h * 0.88),
+            ],
+            dark,
+        ),
+        // 尖った鼻。体より先に描いて、体の丸い先から突き出させる。
+        p.tri(
+            [
+                (w * 0.46, -h * 0.34),
+                (w * 0.46, h * 0.3),
+                (w * 0.7, h * 0.02),
+            ],
+            c,
+        ),
+        p.capsule(0.0, 0.0, w * 1.1, h * 0.8, c),
+        p.capsule(w * 0.04, h * 0.17, w * 0.86, h * 0.36, belly),
+        // 胸びれ。
+        p.tri(
+            [
+                (w * 0.02, h * 0.2),
+                (w * 0.22, h * 0.2),
+                (-w * 0.04, h * 0.62),
+            ],
+            dark,
+        ),
+    ];
+    for gx in [0.24, 0.3] {
+        v.push(p.capsule(w * gx, -h * 0.04, (4.0 * p.s).max(1.0), h * 0.28, dark));
+    }
+    v.extend(p.eye(w * 0.42, -h * 0.13, h * 0.1));
+    v
 }
 
 /// つかんでいる魚のまわりの光。
@@ -283,7 +443,7 @@ fn splash(x: f32, y: f32, p: f32, size: f32) -> Vec<Shape> {
 }
 
 /// 右上のバケツと、釣った魚。多ければ最後の数匹だけ見せる。
-fn bucket(caught: &[Rgb]) -> Vec<Shape> {
+fn bucket(caught: &[Creature], now: Duration) -> Vec<Shape> {
     let (bx, by) = (BUCKET.0 as i32, BUCKET.1 as i32);
     let mut v = vec![
         Shape::RoundRect {
@@ -310,31 +470,41 @@ fn bucket(caught: &[Rgb]) -> Vec<Shape> {
     // 頭がバケツから覗く。
     for (i, &c) in caught.iter().rev().take(5).enumerate() {
         let x = bx - 50 + (i as i32 % 5) * 25;
-        v.extend(fish(x as f32, (by - 62) as f32, 0.22, 1.0, c));
+        v.extend(creature(
+            c,
+            x as f32,
+            (by - 62) as f32,
+            0.22,
+            1.0,
+            now.as_secs_f32(),
+        ));
     }
     v
 }
 
 /// `area` に魚を並べる。数が多ければ小さくする。ゆっくり揺らす。
-fn lineup(area: Rect, colors: &[Rgb], now: Duration) -> Vec<Shape> {
-    let n = colors.len().max(1);
+fn lineup(area: Rect, shown: &[Creature], now: Duration) -> Vec<Shape> {
+    let n = shown.len().max(1);
     let cols = (1..=n).find(|c| c * c * 9 >= n * 16).unwrap_or(n).max(1);
     let rows = n.div_ceil(cols);
     let (cw, ch) = (area.w / cols as i32, area.h / rows as i32);
-    // 体の幅が升の 7 割、高さが升の 6 割に収まる大きさ。
-    let s = (cw as f32 * 0.7 / BODY.0 / 1.2).min(ch as f32 * 0.6 / BODY.1);
-    colors
+    // 一番大きいサメ（尾まで体の幅の 1.5 倍、背びれまで高さの 1.75 倍）が
+    // 升の 8 割に収まる大きさ。
+    let s = (cw as f32 * 0.8 / BODY.0 / 1.5).min(ch as f32 * 0.8 / BODY.1 / 1.75);
+    let t = now.as_secs_f32();
+    shown
         .iter()
         .enumerate()
         .flat_map(|(i, &c)| {
-            let bob = (now.as_secs_f32() * 2.0 + i as f32 * 0.7).sin() * BODY.1 * s * 0.1;
+            let bob = (t * 2.0 + i as f32 * 0.7).sin() * BODY.1 * s * 0.08;
             let facing = if (i / cols) % 2 == 0 { 1.0 } else { -1.0 };
-            fish(
+            creature(
+                c,
                 (area.x + (i % cols) as i32 * cw + cw / 2) as f32,
                 (area.y + (i / cols) as i32 * ch + ch / 2) as f32 + bob,
                 s,
                 facing,
-                c,
+                t,
             )
         })
         .collect()
@@ -404,6 +574,25 @@ fn darken(c: Rgb) -> Rgb {
 mod tests {
     use super::*;
 
+    /// 図形の外接する長方形。`(左, 上, 右, 下)`。
+    fn bounds(s: &Shape) -> (i32, i32, i32, i32) {
+        match *s {
+            Shape::Circle { x, y, r, .. } => (x - r, y - r, x + r, y + r),
+            Shape::RoundRect { rect, .. } => (rect.x, rect.y, rect.x + rect.w, rect.y + rect.h),
+            Shape::Triangle { points, .. } => {
+                let xs = points.map(|p| p.0);
+                let ys = points.map(|p| p.1);
+                (
+                    *xs.iter().min().unwrap(),
+                    *ys.iter().min().unwrap(),
+                    *xs.iter().max().unwrap(),
+                    *ys.iter().max().unwrap(),
+                )
+            }
+            _ => (0, 0, 0, 0),
+        }
+    }
+
     /// **札に縮めても、はみ出さない。**
     #[test]
     fn the_icon_stays_inside_its_area() {
@@ -425,25 +614,50 @@ mod tests {
     #[test]
     fn the_lineup_fits_below_the_score() {
         for n in [0, 1, 7, 30, 120] {
-            let scene = finale(&vec![(255, 0, 0); n], Duration::from_secs(1));
+            let caught: Vec<Creature> = (0..n)
+                .map(|i| Creature {
+                    kind: Kind::ALL[i % Kind::ALL.len()],
+                    color: (255, 0, 0),
+                })
+                .collect();
+            let scene = finale(&caught, Duration::from_secs(1));
             let Some(&Shape::Text { y, px, text, .. }) = scene.shapes.first() else {
                 panic!("点数が出ていない");
             };
             assert_eq!(text, score(n));
             let bottom = y + px / 2;
             for s in &scene.shapes[1..] {
-                let (top, low, left, right) = match *s {
-                    Shape::Circle { x, y, r, .. } => (y - r, y + r, x - r, x + r),
-                    Shape::RoundRect { rect, .. } => {
-                        (rect.y, rect.y + rect.h, rect.x, rect.x + rect.w)
-                    }
-                    _ => continue,
-                };
+                if matches!(s, Shape::Text { .. }) {
+                    continue;
+                }
+                let (left, top, right, low) = bounds(s);
                 assert!(top >= bottom, "{n}: 点数に重なった: {s:?}");
                 assert!(
                     low <= HEIGHT && left >= 0 && right <= WIDTH,
                     "{n}: はみ出した: {s:?}"
                 );
+            }
+        }
+    }
+
+    /// **どの種類も、つかめる範囲（`BODY` の枠の 1.6 倍）に収まる。** 見た目だけ
+    /// 大きいと、触ったのに逃げたように見える。
+    #[test]
+    fn every_kind_fits_its_catch_box() {
+        for kind in Kind::ALL {
+            for facing in [1.0, -1.0] {
+                let c = Creature {
+                    kind,
+                    color: (200, 100, 50),
+                };
+                for s in creature(c, 0.0, 0.0, 1.0, facing, 1.3) {
+                    let (l, t, r, b) = bounds(&s);
+                    let (hw, hh) = ((BODY.0 * 0.8) as i32, (BODY.1 * 0.9) as i32);
+                    assert!(
+                        l >= -hw && r <= hw && t >= -hh && b <= hh,
+                        "{kind:?}: {s:?}"
+                    );
+                }
             }
         }
     }

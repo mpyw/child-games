@@ -5,9 +5,9 @@
 //! 受け取って魚をどうするか決めるだけなので、絵を組まずに確かめられる。
 //!
 //! ```text
-//! 泳ぐ ─手が入った─→ つかまれる ─両手で強く振り上げた─→ 釣れる
+//! 泳ぐ ─手が入った─→ つかまれる ─強く振り上げた─→ 釣れる
 //!  ↑                    │
-//!  │                    ├─ 弱い / 片手だけ / 振り上げない ─→ 逃げる
+//!  │                    ├─ 弱い / 振り上げない ─→ 逃げる
 //!  └────────────────────┴──────────────────────────────────┘
 //! ```
 
@@ -18,6 +18,65 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use crate::config::Config;
+
+/// 池にいるものの種類。**つかめる範囲は種類によらず同じ。** 見た目だけが違う。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    /// ふつうの魚。色いろ。
+    Fish,
+    /// フグ。まんまる。
+    Puffer,
+    /// タコ。足がゆらゆら。
+    Octopus,
+    /// サメ。長くて大きい。たまにしか出ない。
+    Shark,
+}
+
+impl Kind {
+    pub const ALL: [Kind; 4] = [Kind::Fish, Kind::Puffer, Kind::Octopus, Kind::Shark];
+
+    /// 出る割合（百分率）。足して 100。
+    const fn weight(self) -> u32 {
+        match self {
+            Kind::Fish => 55,
+            Kind::Puffer => 18,
+            Kind::Octopus => 15,
+            Kind::Shark => 12,
+        }
+    }
+
+    /// その種類で使う色。
+    const fn colors(self) -> &'static [Rgb] {
+        match self {
+            Kind::Fish => &COLORS,
+            Kind::Puffer => &[(255, 205, 60), (255, 160, 70)],
+            Kind::Octopus => &[(235, 90, 80), (240, 120, 170)],
+            Kind::Shark => &[(120, 140, 165)],
+        }
+    }
+}
+
+/// 池にいるもの1匹の見た目。釣ったものもこれで覚える。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Creature {
+    pub kind: Kind,
+    pub color: Rgb,
+}
+
+impl Creature {
+    /// 種類ごとに1匹ずつ。1匹も釣れなかったときのお祝いに並べる。
+    pub fn parade() -> Vec<Creature> {
+        Kind::ALL
+            .iter()
+            .flat_map(|&kind| {
+                kind.colors()
+                    .iter()
+                    .take(if kind == Kind::Fish { 3 } else { 1 })
+                    .map(move |&color| Creature { kind, color })
+            })
+            .collect()
+    }
+}
 
 /// 魚の色。離れたテレビでも見分けられる、はっきりした色だけ。
 pub const COLORS: [Rgb; 6] = [
@@ -54,8 +113,8 @@ const GRAB: Duration = Duration::from_millis(150);
 const LINGER: Duration = Duration::from_millis(400);
 /// つかんだまま振り上げないと、これで逃げる。
 const HOLD: Duration = Duration::from_secs(5);
-/// 振り上げを見る長さ。**左右がこの間に揃えば両手。** 2歳児の両手は
-/// きっちり同時には上がらない。
+/// 振り上げを見る長さ。**この間に要る速さに届かなければ、弱いとみなして
+/// 逃がす。**
 const WINDOW: Duration = Duration::from_millis(350);
 /// これだけの速さで上へ動いたら、振り上げを始めたとみなす（`need` に対する割合）。
 const STIR: f32 = 0.35;
@@ -80,8 +139,6 @@ const STAY: (f32, f32) = (12.0, 18.0);
 const EASE: f32 = 0.85;
 /// 釣れる速さは、`swing_speed` のこの割合より下げない。
 const FLOOR: f32 = 0.5;
-/// これだけ続けて逃げたら、片手でも釣れるようにする。
-const ONE_HAND: u32 = 3;
 
 /// 1匹ぶんの、見えたもの。
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -89,6 +146,8 @@ pub struct Seen {
     /// 魚のまわりで動いた割合（0〜1）。
     pub grab: f32,
     /// 魚の左側で、上へ動いた速さ（毎秒の画素）。向きが分からなければ 0。
+    /// **左右のどちらかが足りれば釣れる。** 両手を求めていた頃は、2歳児には
+    /// 厳しすぎた。左右に分けて見るのは、調整用の表示で強さを見せるため。
     pub left: f32,
     /// 魚の右側で、上へ動いた速さ。
     pub right: f32,
@@ -132,7 +191,7 @@ pub enum Event {
 pub struct Fish {
     pub x: f32,
     pub y: f32,
-    pub color: Rgb,
+    pub look: Creature,
     /// 右向きなら 1、左向きなら -1。
     pub facing: f32,
     pub state: State,
@@ -152,7 +211,7 @@ pub struct Fish {
 
 pub struct Pond {
     fish: Vec<Fish>,
-    caught: Vec<Rgb>,
+    caught: Vec<Creature>,
     /// 続けて逃げた数。釣れたら 0 に戻す。
     slips: u32,
     next_spawn: Duration,
@@ -209,19 +268,19 @@ impl Pond {
         &self.fish
     }
 
-    /// 釣った魚の色。釣った順。
-    pub fn caught(&self) -> &[Rgb] {
+    /// バケツに入った魚。釣った順。
+    pub fn caught(&self) -> &[Creature] {
         &self.caught
     }
 
-    /// 釣った魚の色の全部。**飛んでいる途中のものも数える。** 曲が終わった
+    /// 釣った魚の全部。**飛んでいる途中のものも数える。** 曲が終わった
     /// 瞬間にバケツへ向かっていた魚も、釣ったことには変わりない。
-    pub fn haul(&self) -> Vec<Rgb> {
+    pub fn haul(&self) -> Vec<Creature> {
         let flying = self
             .fish
             .iter()
             .filter(|f| matches!(f.state, State::Caught { .. }))
-            .map(|f| f.color);
+            .map(|f| f.look);
         self.caught.iter().copied().chain(flying).collect()
     }
 
@@ -230,15 +289,10 @@ impl Pond {
         self.swing * EASE.powi(self.slips as i32).max(FLOOR)
     }
 
-    /// 片手でも釣れるか。続けて逃げたら、そうする。
-    pub fn one_hand(&self) -> bool {
-        self.slips >= ONE_HAND
-    }
-
     /// 時刻を進める。`seen` は魚ごとに、見えたものを返す。
     pub fn step(&mut self, now: Duration, dt: f32, seen: impl Fn(&Fish) -> Seen) -> Vec<Event> {
         let mut events = Vec::new();
-        let (need, one_hand) = (self.need(), self.one_hand());
+        let need = self.need();
         let mut slipped = 0;
         let mut landed = Vec::new();
         let mut gone = Vec::new();
@@ -314,19 +368,14 @@ impl Pond {
                         None => None,
                     };
                     f.state = match swing {
-                        Some(w) if w.left >= need && w.right >= need => {
+                        Some(w) if w.left.max(w.right) >= need => {
                             events.push(Event::Catch);
                             State::Caught { at: now }
                         }
                         Some(w) if now.saturating_sub(w.start) >= WINDOW => {
-                            if one_hand && w.left.max(w.right) >= need {
-                                events.push(Event::Catch);
-                                State::Caught { at: now }
-                            } else {
-                                events.push(Event::Slip);
-                                slipped += 1;
-                                State::Slipped { at: now }
-                            }
+                            events.push(Event::Slip);
+                            slipped += 1;
+                            State::Slipped { at: now }
                         }
                         None if now.saturating_sub(since) >= HOLD => {
                             events.push(Event::Slip);
@@ -369,7 +418,7 @@ impl Pond {
         for (i, caught) in out {
             let f = self.fish.remove(i);
             if caught {
-                self.caught.push(f.color);
+                self.caught.push(f.look);
             }
         }
         if self.fish.len() < self.max && now >= self.next_spawn {
@@ -395,11 +444,11 @@ impl Pond {
             }
             y = self.rng.gen_range(DEPTH.0..DEPTH.1);
         }
-        let color = COLORS[self.rng.gen_range(0..COLORS.len())];
+        let look = self.pick();
         self.fish.push(Fish {
             x,
             y,
-            color,
+            look,
             facing: if from_left { 1.0 } else { -1.0 },
             state: State::Swim { touched: None },
             cool: Duration::ZERO,
@@ -409,6 +458,27 @@ impl Pond {
             phase: self.rng.gen_range(0.0..std::f32::consts::TAU),
         });
         self.spawned += 1;
+    }
+
+    /// 次に出すものを選ぶ。種類は出る割合で、色はその種類の中から。
+    fn pick(&mut self) -> Creature {
+        let mut roll = self.rng.gen_range(0..100);
+        let kind = Kind::ALL
+            .into_iter()
+            .find(|k| {
+                if roll < k.weight() {
+                    true
+                } else {
+                    roll -= k.weight();
+                    false
+                }
+            })
+            .unwrap_or(Kind::Fish);
+        let colors = kind.colors();
+        Creature {
+            kind,
+            color: colors[self.rng.gen_range(0..colors.len())],
+        }
     }
 
     /// 画面のこの位置を押した（マウス）。**そこにいる魚をすぐ釣る。**
@@ -599,44 +669,25 @@ mod tests {
         let t = held(&mut p);
         let (t, ev) = run(&mut p, t, 0.1, both(600.0));
         assert_eq!(ev, [Event::Catch]);
-        let color = p.fish()[0].color;
+        let look = p.fish()[0].look;
         run(&mut p, t, 1.1, Seen::default());
-        assert_eq!(p.caught(), &[color]);
+        assert_eq!(p.caught(), &[look]);
     }
 
-    /// **左右は少しずれて上がってもよい。** 2歳児の両手は同時に上がらない。
+    /// **片手だけでも、強く振り上げれば釣れる。** 左でも右でも。
     #[test]
-    fn hands_need_not_rise_at_the_same_instant() {
-        let mut p = pond();
-        let t = held(&mut p);
-        let left = Seen {
-            grab: 0.5,
-            left: 600.0,
-            right: 0.0,
-        };
-        let right = Seen {
-            grab: 0.5,
-            left: 0.0,
-            right: 600.0,
-        };
-        let (t, ev) = run(&mut p, t, 0.1, left);
-        assert!(ev.is_empty());
-        let (_, ev) = run(&mut p, t, 0.1, right);
-        assert_eq!(ev, [Event::Catch]);
-    }
-
-    /// 片手だけだと、スルッと逃げられる。
-    #[test]
-    fn one_hand_slips() {
-        let mut p = pond();
-        let t = held(&mut p);
-        let one = Seen {
-            grab: 0.5,
-            left: 700.0,
-            right: 0.0,
-        };
-        let (_, ev) = run(&mut p, t, 0.5, one);
-        assert_eq!(ev, [Event::Slip]);
+    fn one_hand_is_enough() {
+        for (left, right) in [(600.0, 0.0), (0.0, 600.0)] {
+            let mut p = pond();
+            let t = held(&mut p);
+            let one = Seen {
+                grab: 0.5,
+                left,
+                right,
+            };
+            let (_, ev) = run(&mut p, t, 0.1, one);
+            assert_eq!(ev, [Event::Catch], "{left} / {right}");
+        }
     }
 
     /// 振り上げが弱いと、逃げられる。
@@ -675,14 +726,13 @@ mod tests {
         assert!(ev.contains(&Event::Grab), "いつまでもつかめない");
     }
 
-    /// **逃げるたびに釣れやすくなり、続けて逃げたら片手でも釣れる。**
-    /// 釣れたら元に戻る。
+    /// **逃げるたびに釣れやすくなる。** 釣れたら元に戻る。
     #[test]
     fn slipping_makes_the_next_catch_easier() {
         let mut p = pond();
         let full = p.need();
         let mut t = held(&mut p);
-        for _ in 0..ONE_HAND {
+        for _ in 0..3 {
             let weak = both(p.need() * 0.4);
             let (t2, ev) = run(&mut p, t, 0.5, weak);
             assert_eq!(ev, [Event::Slip]);
@@ -694,17 +744,38 @@ mod tests {
             let (t2, _) = run(&mut p, t2, 0.4, touch);
             t = t2;
         }
-        assert!(p.need() < full * 0.7, "釣れやすくなっていない");
-        assert!(p.one_hand());
-        let one = Seen {
-            grab: 0.5,
-            left: p.need() + 10.0,
-            right: 0.0,
-        };
-        let (_, ev) = run(&mut p, t, 0.5, one);
-        assert_eq!(ev, [Event::Catch], "片手で釣れない");
+        let eased = p.need();
+        assert!(eased < full * 0.7, "釣れやすくなっていない");
+        // 元の速さには届かないが、下がった速さには届く振り上げで釣れる。
+        let (_, ev) = run(&mut p, t, 0.2, both(eased + 10.0));
+        assert_eq!(ev, [Event::Catch]);
+        assert!(eased + 10.0 < full);
         assert_eq!(p.need(), full);
-        assert!(!p.one_hand());
+    }
+
+    /// 出る割合は足して 100。どの種類もちゃんと出てくる。
+    #[test]
+    fn every_kind_shows_up() {
+        assert_eq!(Kind::ALL.iter().map(|k| k.weight()).sum::<u32>(), 100);
+        let mut p = pond();
+        let kinds: Vec<Kind> = (0..400).map(|_| p.pick().kind).collect();
+        for k in Kind::ALL {
+            let n = kinds.iter().filter(|&&x| x == k).count();
+            assert!(n > 20, "{k:?} が {n} 匹しか出ない");
+        }
+        let sharks = kinds.iter().filter(|&&x| x == Kind::Shark).count();
+        let fish = kinds.iter().filter(|&&x| x == Kind::Fish).count();
+        assert!(sharks < fish / 2, "サメが多すぎる");
+    }
+
+    /// 選んだ色は、その種類の色。
+    #[test]
+    fn colors_match_the_kind() {
+        let mut p = pond();
+        for _ in 0..200 {
+            let c = p.pick();
+            assert!(c.kind.colors().contains(&c.color), "{c:?}");
+        }
     }
 
     /// 速さの下げ方には底がある。

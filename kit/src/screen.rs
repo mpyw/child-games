@@ -67,6 +67,11 @@ pub enum Shape {
     Circle { x: i32, y: i32, r: i32, fill: Rgb },
     /// 角の丸い長方形。
     RoundRect { rect: Rect, r: i32, fill: Rgb },
+    /// 塗った三角形。3つの頂点はどちら回りでもよい。縁は付かない。
+    ///
+    /// 魚の尾やサメの背びれのような、尖ったものを描くため。丸を積んで
+    /// 作ると、でこぼこの塊にしか見えない。
+    Triangle { points: [(i32, i32); 3], fill: Rgb },
     /// 文字。`(x, y)` が字面の中心、`px` が字の大きさ。
     Text {
         x: i32,
@@ -104,6 +109,10 @@ impl Shape {
             Shape::RoundRect { rect, r, fill } => Shape::RoundRect {
                 rect,
                 r,
+                fill: g(fill),
+            },
+            Shape::Triangle { points, fill } => Shape::Triangle {
+                points,
                 fill: g(fill),
             },
             Shape::Text {

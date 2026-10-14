@@ -170,6 +170,7 @@ fn paint(buf: &mut [u32], scene: &Scene) {
         match *shape {
             Shape::Circle { x, y, r, fill } => circle(buf, x, y, r, fill),
             Shape::RoundRect { rect, r, fill } => round_rect(buf, rect, r, fill),
+            Shape::Triangle { points, fill } => triangle(buf, points, fill),
             Shape::Text {
                 x,
                 y,
@@ -237,6 +238,47 @@ fn round_rect(buf: &mut [u32], rect: Rect, r: i32, c: Rgb) {
                 continue;
             }
             buf[y as usize * W + x as usize] = fill;
+        }
+    }
+}
+
+/// 塗った三角形。画素の真ん中が3辺の内側（辺の上を含む）にあるものを塗る。
+///
+/// 頂点の回り方は問わない。辺の式の符号が揃っていれば内側とみなすので、
+/// 時計回りでも反時計回りでも同じに塗れる。
+fn triangle(buf: &mut [u32], p: [(i32, i32); 3], c: Rgb) {
+    let fill = rgb(c);
+    let xs = p.map(|q| q.0);
+    let ys = p.map(|q| q.1);
+    let (x0, x1) = (
+        xs.into_iter().min().unwrap_or(0).max(0),
+        xs.into_iter().max().unwrap_or(0).min(WIDTH - 1),
+    );
+    let (y0, y1) = (
+        ys.into_iter().min().unwrap_or(0).max(0),
+        ys.into_iter().max().unwrap_or(0).min(HEIGHT - 1),
+    );
+    // 辺 a→b に対して、点が左右どちらにあるか。画素の真ん中で見るので2倍で計算する。
+    let edge = |a: (i32, i32), b: (i32, i32), x: i32, y: i32| -> i64 {
+        let (ax, ay, bx, by) = (
+            2 * a.0 as i64,
+            2 * a.1 as i64,
+            2 * b.0 as i64,
+            2 * b.1 as i64,
+        );
+        (bx - ax) * (y as i64 * 2 + 1 - ay) - (by - ay) * (x as i64 * 2 + 1 - ax)
+    };
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let e = [
+                edge(p[0], p[1], x, y),
+                edge(p[1], p[2], x, y),
+                edge(p[2], p[0], x, y),
+            ];
+            let inside = e.iter().all(|&v| v >= 0) || e.iter().all(|&v| v <= 0);
+            if inside {
+                buf[y as usize * W + x as usize] = fill;
+            }
         }
     }
 }
@@ -348,6 +390,25 @@ mod tests {
 
     /// **画面に出す字が、全部フォントに入っていること。** 入っていない字は
     /// 何も描かれず、落ちもしないので、目で見るまで気づけない。
+    /// 三角形は内側だけを塗る。頂点の回り方によらない。画面の外にはみ出しても落ちない。
+    #[test]
+    fn triangles_fill_inside_either_way_round() {
+        for pts in [
+            [(100, 100), (300, 100), (100, 300)],
+            [(100, 100), (100, 300), (300, 100)],
+        ] {
+            let mut buf = vec![0u32; W * H];
+            triangle(&mut buf, pts, (255, 0, 0));
+            let at = |x: usize, y: usize| buf[y * W + x];
+            assert_eq!(at(150, 150), rgb((255, 0, 0)), "内側が塗られていない");
+            assert_eq!(at(290, 290), 0, "外側を塗った");
+            assert_eq!(at(50, 50), 0);
+        }
+        let mut buf = vec![0u32; W * H];
+        triangle(&mut buf, [(-500, -500), (5000, 10), (10, 5000)], (1, 2, 3));
+        assert_eq!(buf[0], rgb((1, 2, 3)));
+    }
+
     #[test]
     fn every_label_on_screen_is_in_the_font() {
         let f = font();
