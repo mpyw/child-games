@@ -7,7 +7,7 @@
 //!     cargo run -- --once                   1回遊んだら終わる（もう1回を待たない）
 //!     cargo run -- --config other.toml      別の設定ファイルを読む
 //!     cargo run -- --help                   使い方
-//!     cargo run --no-default-features       whisper もウィンドウも無し
+//!     cargo run --no-default-features       whisper もウィンドウもカメラも無し
 //!
 //! 設定は `config.toml` に集約してある。何をいじれるかはそのファイルを見ること。
 
@@ -30,7 +30,10 @@ struct Options {
 /// メニューに並べる遊び。**遊びを足したら、ここと `Cargo.toml` と
 /// `config::Games` に書く。** 並べた順にメニューに出る。
 fn catalog(cfg: &config::Config) -> Vec<Box<dyn Game>> {
-    vec![Box::new(donna_iro::DonnaIro::new(&cfg.games.donna_iro))]
+    vec![
+        Box::new(donna_iro::DonnaIro::new(&cfg.games.donna_iro)),
+        Box::new(balloon_crash::BalloonCrash::new(&cfg.games.balloon_crash)),
+    ]
 }
 
 /// 引数だけを読んだ結果。**設定の読み込みはここに混ぜない。**
@@ -46,17 +49,29 @@ struct Flags {
 }
 
 /// 使い方。`--help` で出す。
-const USAGE: &str = "\
+///
+/// **遊びの名前は `catalog` から引く。** 手で並べると、遊びを足したときに
+/// 書き忘れる。
+fn usage() -> String {
+    let ids: Vec<&str> = catalog(&config::Config::default())
+        .iter()
+        .map(|g| g.id())
+        .collect();
+    format!(
+        "\
 あそびをえらぶ
 
   --keyboard          マイクの代わりに手打ち
   --terminal          ウィンドウを使わず文字だけ
-  --game <name>       メニューを飛ばしてその遊びから（donna-iro）
+  --game <name>       メニューを飛ばしてその遊びから（{}）
   --once              1回遊んだら終わる（もう1回を待たない）
   --config <path>     別の設定ファイルを読む
   --help              これ
 
-設定は config.toml に集約してある。何をいじれるかはそのファイルを見ること。";
+設定は config.toml に集約してある。何をいじれるかはそのファイルを見ること。",
+        ids.join(" / ")
+    )
+}
 
 /// 引数を順に食べる。**知らないものは黙って捨てない。**
 ///
@@ -87,7 +102,7 @@ fn parse_flags(args: impl Iterator<Item = String>) -> Result<Flags> {
                 flags.config = Some(std::path::PathBuf::from(path));
             }
             "--game" => flags.game = Some(args.next().context("--game に遊びの名前が無い")?),
-            other => anyhow::bail!("知らない引数: {other}\n\n{USAGE}"),
+            other => anyhow::bail!("知らない引数: {other}\n\n{}", usage()),
         }
     }
     Ok(flags)
@@ -96,7 +111,7 @@ fn parse_flags(args: impl Iterator<Item = String>) -> Result<Flags> {
 fn parse_args() -> Result<Options> {
     let flags = parse_flags(std::env::args().skip(1))?;
     if flags.help {
-        println!("{USAGE}");
+        println!("{}", usage());
         std::process::exit(0);
     }
     let config = config::load(flags.config.as_deref())?;
@@ -254,8 +269,22 @@ fn play(opts: Options, screen: Box<dyn Screen>, control: Box<dyn Control>) -> Re
         listener: open_listener(&opts)?,
         screen,
         control,
+        camera: open_camera(&opts)?,
     };
     menu::Home::new(catalog(&opts.config), dev, opts.once).run(opts.start)
+}
+
+/// **カメラが無ければ起動時に止める。** 選んでから気づくと、テレビの前で
+/// 遊びが始まらない。開くだけで、撮るのは遊びが最初に見たとき。
+#[cfg(feature = "camera")]
+fn open_camera(opts: &Options) -> Result<Box<dyn kit::Camera>> {
+    Ok(Box::new(io::camera::Webcam::open(&opts.config)?))
+}
+
+/// カメラ無しで組んだときは、何も映らない絵を返す。マウスで押して試す。
+#[cfg(not(feature = "camera"))]
+fn open_camera(_opts: &Options) -> Result<Box<dyn kit::Camera>> {
+    Ok(Box::new(io::camera::Still))
 }
 
 #[cfg(feature = "whisper")]

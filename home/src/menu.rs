@@ -132,8 +132,7 @@ impl Home {
     fn again(&mut self, i: usize) -> Next {
         // 待っていることを画面に出してから待つ。黙って止まっていると、
         // 終わったのか固まったのか区別がつかない。
-        let mut scene = self.games[i].backdrop();
-        scene.shapes = scene.shapes.into_iter().map(|s| s.shaded(DIM)).collect();
+        let mut scene = self.games[i].backdrop().shaded(DIM);
         scene.shapes.push(Shape::Button {
             x: WIDTH / 2,
             y: HEIGHT / 2,
@@ -201,6 +200,7 @@ impl Home {
         Scene {
             shapes,
             caption: lines.join("\n"),
+            ..Scene::default()
         }
     }
 }
@@ -247,7 +247,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::rc::Rc;
 
-    use kit::{Control, Heard, Listener, Player, Screen, Sound, Timing};
+    use kit::{Camera, Control, Heard, Listener, Player, Screen, Sound, Timing};
 
     use super::*;
 
@@ -287,6 +287,9 @@ mod tests {
         fn begin(&self, _sound: Sound) -> Result<Timing> {
             unreachable!("メニューは鳴らさない")
         }
+        fn effect(&self, _sound: Sound) -> Result<()> {
+            unreachable!("メニューは鳴らさない")
+        }
         fn silence(&self) {}
     }
     struct Deaf;
@@ -298,6 +301,12 @@ mod tests {
     struct Blind;
     impl Screen for Blind {
         fn show(&mut self, _scene: Scene) {}
+    }
+    impl Camera for Blind {
+        fn frame(&mut self) -> Result<kit::Image> {
+            unreachable!("メニューは見ない")
+        }
+        fn rest(&mut self) {}
     }
 
     /// 台本どおりに押す。**待ちに入る前の掃除では消えない**ように、
@@ -330,6 +339,7 @@ mod tests {
             listener: Box::new(Deaf),
             screen: Box::new(Blind),
             control: Box::new(Presses(presses.iter().copied().collect())),
+            camera: Box::new(Blind),
         };
         (Home::new(games, dev, once), log)
     }

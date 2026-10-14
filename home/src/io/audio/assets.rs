@@ -150,37 +150,78 @@ fn complete(dir: &Path, names: &[&str]) -> bool {
 /// バイナリ1つで完結する。
 #[cfg(feature = "embed-audio")]
 macro_rules! table {
-    // 素材の一覧はここ1箇所。ディレクトリだけ差し替えられるようにしてある。
-    ($sub:literal) => {
-        table!(@ "donna-iro", $sub,
-            "intro", "question", "tail", "tail-lead", "bridge", "interlude", "all",
-            "red", "blue", "yellow", "green", "yellowgreen", "white", "black",
-            "pink", "orange", "purple", "brown", "lightblue",
-        )
-    };
-    (@ $game:literal, $sub:literal, $($name:literal),* $(,)?) => {
+    ($game:literal, $sub:expr, $($name:literal),* $(,)?) => {
         &[$(($game, $name, include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"), "/../games/", $game, "/assets/", $sub, $name, ".wav"
         )) as &'static [u8])),*]
     };
 }
 
-/// 埋め込んだ実体。**名前は手で並べる。**
-///
-/// `include_bytes!` はリテラルのパスしか受け付けないので、`Cue::stem()` の
-/// ように導くことができない。実体が無ければここで落ちるが、素材を足して
-/// 表に書き忘れるほうは下の検査で見る。
+/// 埋め込むディレクトリ。本番音源か、確認用の合成音か。
 ///
 /// 本番音源が無い状態で `.app` を作りたいときのために、`embed-reference` で
 /// 確認用の合成音を埋め込める。**実行時のフォールバック（`choose` が
 /// `reference/` に落ちる）は埋め込みには効かない。** `include_bytes!`
 /// はファイルの有無を見られないので、こちらは手で切り替えるしかない。
-///
-/// 遊びを足したら、その遊びのぶんの `table!` をここに足すこと。
+/// `reference/` を持たない遊びには関係ない。
 #[cfg(all(feature = "embed-audio", not(feature = "embed-reference")))]
-const FILES: &[(&str, &str, &[u8])] = table!("");
+macro_rules! reference_or_not {
+    () => {
+        ""
+    };
+}
 #[cfg(feature = "embed-reference")]
-const FILES: &[(&str, &str, &[u8])] = table!("reference/");
+macro_rules! reference_or_not {
+    () => {
+        "reference/"
+    };
+}
+
+/// 1つの遊びぶんの表。`(遊び, 名前, 実体)`。
+#[cfg(feature = "embed-audio")]
+type Table = &'static [(&'static str, &'static str, &'static [u8])];
+
+/// 埋め込んだ実体。**名前は手で並べる。遊びを足したら、ここに1つ足す。**
+///
+/// `include_bytes!` はリテラルのパスしか受け付けないので、`Cue::stem()` の
+/// ように導くことができない。実体が無ければここで落ちるが、素材を足して
+/// 表に書き忘れるほうは下の検査で見る。
+#[cfg(feature = "embed-audio")]
+const FILES: &[Table] = &[
+    table!(
+        "donna-iro",
+        reference_or_not!(),
+        "intro",
+        "question",
+        "tail",
+        "tail-lead",
+        "bridge",
+        "interlude",
+        "all",
+        "red",
+        "blue",
+        "yellow",
+        "green",
+        "yellowgreen",
+        "white",
+        "black",
+        "pink",
+        "orange",
+        "purple",
+        "brown",
+        "lightblue",
+    ),
+    // 素材がフリーで、最初から本物が入っている。合成音の切り替えは無い。
+    table!(
+        "balloon-crash",
+        "",
+        "song",
+        "pop-1",
+        "pop-2",
+        "pop-3",
+        "fanfare"
+    ),
+];
 
 /// const で使う文字列の等値。`==` は const で回せない。
 #[cfg(feature = "embed-audio")]
@@ -197,28 +238,48 @@ const fn str_eq(a: &str, b: &str) -> bool {
     true
 }
 
-/// **素材がすべて表に載っているか、コンパイル時に確かめる。**
+/// `game` の素材が全部表に載っているか。
+#[cfg(feature = "embed-audio")]
+const fn listed(game: &str, names: &[&str]) -> bool {
+    const_for!(i in 0..names.len() => {
+        let mut found = false;
+        const_for!(t in 0..FILES.len() => {
+            const_for!(j in 0..FILES[t].len() => {
+                if str_eq(FILES[t][j].0, game) && str_eq(FILES[t][j].1, names[i]) {
+                    found = true;
+                }
+            });
+        });
+        if !found {
+            return false;
+        }
+    });
+    true
+}
+
+/// **素材がすべて表に載っているか、コンパイル時に確かめる。遊びを足したら
+/// ここにも1行足す。**
 ///
 /// 実体が無ければ `include_bytes!` がその場で落ちるので、ここで見るのは
-/// 名前の取りこぼしだけ。色を足して上の表に書き忘れると、以前は鳴らそう
+/// 名前の取りこぼしだけ。素材を足して上の表に書き忘れると、以前は鳴らそう
 /// とした時点で初めて「埋め込まれていない素材」になっていた。
 #[cfg(feature = "embed-audio")]
 const _: () = {
-    const_for!(i in 0..donna_iro::SOUNDS.len() => {
-        let mut found = false;
-        const_for!(j in 0..FILES.len() => {
-            if str_eq(FILES[j].0, donna_iro::ID) && str_eq(FILES[j].1, donna_iro::SOUNDS[i]) {
-                found = true;
-            }
-        });
-        assert!(found, "埋め込みの表に無い素材がある（assets.rs の FILES を見ること）");
-    });
+    assert!(
+        listed(donna_iro::ID, &donna_iro::SOUNDS),
+        "埋め込みの表に無い素材がある（assets.rs の FILES を見ること）"
+    );
+    assert!(
+        listed(balloon_crash::ID, &balloon_crash::SOUNDS),
+        "埋め込みの表に無い素材がある（assets.rs の FILES を見ること）"
+    );
 };
 
 #[cfg(feature = "embed-audio")]
 fn embedded(sound: Sound) -> Option<&'static [u8]> {
     FILES
         .iter()
+        .flat_map(|t| t.iter())
         .find(|(g, n, _)| *g == sound.game && *n == sound.name)
         .map(|(_, _, b)| *b)
 }

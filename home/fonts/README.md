@@ -3,7 +3,7 @@
 `ui.ttf` は **Noto Sans JP** から、画面に出す字だけを抜いたサブセット。
 
 ウィンドウに出す字は「もう1回」のボタンとメニューに並ぶ遊びの題だけなので、
-全部入りの CJK フォント（5MB 超）を抱える理由がない。十数字に削ると 9KB で済む。
+全部入りの CJK フォント（5MB 超）を抱える理由がない。二十字ほどに削ると 11KB で済む。
 
 作り直すには（`fonttools` が要る。`uvx --from fonttools fonttools …` でもよい）:
 
@@ -11,7 +11,7 @@
 curl -sL -o vf.ttf \
   https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/Variable/TTF/Subset/NotoSansJP-VF.ttf
 python3 -m fontTools.varLib.instancer vf.ttf wght=700 -o bold.ttf
-python3 -m fontTools.subset bold.ttf --text='もう1回どんないろがすき？' --name-IDs='*' \
+python3 -m fontTools.subset bold.ttf --text='もう1回どんないろがすき？ふうせん パン！' --name-IDs='*' \
   --no-hinting --desubroutinize --output-file=ui.ttf
 ```
 

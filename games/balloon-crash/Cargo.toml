@@ -1,0 +1,12 @@
+[package]
+name = "balloon-crash"
+version.workspace = true
+edition.workspace = true
+
+# 装置の crate（nokhwa / rodio / minifb）はここに入れない。
+# 見る・鳴らす・映すは kit のトレイト越しにしか触らない。
+[dependencies]
+kit.workspace = true
+anyhow.workspace = true
+rand.workspace = true
+serde.workspace = true

@@ -17,6 +17,9 @@ pub struct Speakers {
     /// は1つのスレッドの中だけで使う（rodio が `!Send`）ため、
     /// `RefCell` で足りる。
     playing: std::cell::RefCell<Option<rodio::Sink>>,
+    /// 今鳴っている効果音。**口は曲とこれの2本だけ。** 効果音どうしは
+    /// 置き換えるので、立て続けに鳴らしても重なり過ぎない。
+    effect: std::cell::RefCell<Option<rodio::Sink>>,
 }
 
 impl Speakers {
@@ -27,6 +30,7 @@ impl Speakers {
             _stream,
             handle,
             playing: std::cell::RefCell::new(None),
+            effect: std::cell::RefCell::new(None),
         })
     }
 }
@@ -53,12 +57,24 @@ impl Player for Speakers {
         Ok(timing)
     }
 
-    /// 鳴っているものを止める。**何も鳴っていなければ何もしない。**
+    /// 曲を止めずに重ねる。前の効果音は置き換える。
+    fn effect(&self, sound: Sound) -> Result<()> {
+        let clip = Clip::load(sound)?;
+        let sink = rodio::Sink::try_new(&self.handle)?;
+        sink.append(clip.into_source());
+        *self.effect.borrow_mut() = Some(sink);
+        Ok(())
+    }
+
+    /// 鳴っているものを止める。曲も効果音も。**何も鳴っていなければ
+    /// 何もしない。**
     fn silence(&self) {
         // 手放すだけで止まる（`Sink` は drop で止める）が、`stop` を
         // 呼んでおくほうが意図がはっきりする。
-        if let Some(sink) = self.playing.borrow_mut().take() {
-            sink.stop();
+        for slot in [&self.playing, &self.effect] {
+            if let Some(sink) = slot.borrow_mut().take() {
+                sink.stop();
+            }
         }
     }
 }

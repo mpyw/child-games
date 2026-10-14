@@ -22,6 +22,7 @@ pub fn palette(order: &[Color]) -> Scene {
     Scene {
         shapes: grid(Rect::SCREEN, order),
         caption,
+        ..Scene::default()
     }
 }
 
@@ -35,6 +36,7 @@ pub fn single(c: Color) -> Scene {
             fill: c.rgb(),
         }],
         caption: format!("● {}", c.name()),
+        ..Scene::default()
     }
 }
 

@@ -68,7 +68,7 @@ fi
 # git-lfs が無くても検査は回る。ただし音源が実体で落ちてこないので
 # 「埋め込み（本番）」が黙って飛ぶ。**飛んだことは言う。**
 if ! git lfs version >/dev/null 2>&1; then
-  echo "⚠ git-lfs が無い。games/donna-iro/assets/ の音源が実体にならないので、" >&2
+  echo "⚠ git-lfs が無い。サブモジュールの音源が実体にならないので、" >&2
   echo "  「埋め込み（本番）」は検査されない（mise install）。" >&2
 fi
 
@@ -80,12 +80,21 @@ combos=(
   "機能なし             :--no-default-features:lax"
   "ウィンドウのみ       :--no-default-features --features window:lax"
   "whisper のみ         :--no-default-features --features whisper:lax"
+  "カメラのみ           :--no-default-features --features camera:lax"
   "埋め込み（合成音）   :--features embed-reference:strict"
 )
 
-# 本番音源があるときだけ、本番の埋め込みも見る。
+# 本番音源が揃っているときだけ、本番の埋め込みも見る。
 # 無いときに回すと include_bytes! が落ちるだけで、確かめたい事とは関係ない。
-if ls games/donna-iro/assets/*.wav >/dev/null 2>&1; then
+#
+# **見るのは合成音（reference/）を持つ遊びだけ。** 持たない遊びは最初から
+# 本物が入っているので、揃っているかを問う意味が無い。
+production=1
+for ref in games/*/assets/reference; do
+  [ -d "$ref" ] || continue
+  ls "$(dirname "$ref")"/*.wav >/dev/null 2>&1 || production=""
+done
+if [ -n "$production" ]; then
   combos+=("埋め込み（本番）     :--features embed:strict")
 fi
 
@@ -101,7 +110,12 @@ for entry in "${combos[@]}"; do
   # shellcheck disable=SC2086
   out="$(cargo clippy --workspace --all-targets $args 2>&1)"
   code=$?
-  warn="$(printf '%s' "$out" | grep -c '^warning:')"
+  # **依存の将来非互換の通知は数えない。** 自分のコードの警告ではなく、
+  # 直す手も無い（nokhwa の macOS 側が古い block を引いている）。数えると
+  # 既定のビルドが永久に落ちる。名前は下で一度だけ出す。
+  warn="$(printf '%s' "$out" | grep '^warning:' | grep -vc 'rejected by a future version of Rust')"
+  future="$(printf '%s' "$out" | grep -o 'packages contain code that will be rejected.*' | head -1)"
+  [ -n "$future" ] && future_note="$future"
 
   if [ "$code" -ne 0 ]; then
     printf '%-22s %-8s %s\n' "$name" "NG" "-"
@@ -119,6 +133,9 @@ for entry in "${combos[@]}"; do
 done
 
 printf '%s\n' "--------------------------------------------------------"
+if [ -n "${future_note:-}" ]; then
+  echo "（依存の将来非互換: the following ${future_note}。数えていない）"
+fi
 
 # 直接依存が macOS と Linux（ラズパイ）で揃っているか。
 #

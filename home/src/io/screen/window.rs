@@ -65,7 +65,7 @@ const KEYS: &[(Key, Press)] = &[
 /// 無い前提なので、本命は CEC のリモコン（`control::cec` が同じ口に流す）。
 pub fn run(rx: Receiver<Scene>, presses: Sender<Press>) -> Result<()> {
     let mut window = Window::new(
-        "どんないろがすき",
+        "donna-iro",
         W,
         H,
         WindowOptions {
@@ -162,7 +162,10 @@ fn rgb(c: Rgb) -> u32 {
 }
 
 fn paint(buf: &mut [u32], scene: &Scene) {
-    buf.fill(rgb(BACKGROUND));
+    match &scene.image {
+        Some(img) => image(buf, img),
+        None => buf.fill(rgb(BACKGROUND)),
+    }
     for shape in &scene.shapes {
         match *shape {
             Shape::Circle { x, y, r, fill } => circle(buf, x, y, r, fill),
@@ -175,6 +178,25 @@ fn paint(buf: &mut [u32], scene: &Scene) {
                 fill,
             } => self::text(buf, x, y, px as f32, text, fill),
             Shape::Button { x, y, px, text } => button(buf, x, y, px as f32, text),
+        }
+    }
+}
+
+/// 絵をキャンバス全体に伸ばして敷く。
+///
+/// **最近傍で伸ばす。** なめらかに補間すると、ラズパイでは毎秒 2700 万
+/// 画素ぶんの計算がメインスレッドに乗る。後ろに敷く暗い鏡像なので、
+/// 粗さは目立たない。
+fn image(buf: &mut [u32], img: &kit::Image) {
+    if img.width == 0 || img.height == 0 || img.pixels.len() < img.width * img.height {
+        buf.fill(rgb(BACKGROUND));
+        return;
+    }
+    let xs: Vec<usize> = (0..W).map(|x| x * img.width / W).collect();
+    for y in 0..H {
+        let row = &img.pixels[(y * img.height / H) * img.width..][..img.width];
+        for (x, &sx) in xs.iter().enumerate() {
+            buf[y * W + x] = rgb(row[sx]);
         }
     }
 }

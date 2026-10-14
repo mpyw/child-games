@@ -21,10 +21,13 @@
 | `src/io/screen/window.rs` | ウィンドウ描画。図形を塗る |
 | `src/io/listener/keyboard.rs` | 手打ち |
 | `src/io/listener/mic.rs` | マイクと whisper |
+| `src/io/camera/webcam.rs` | カメラ（nokhwa）。専用のスレッドで撮る |
+| `src/io/camera/shrink.rs` | 撮った絵を 16:9 に切り出し、320×180 に縮め、左右を反転する |
+| `src/io/camera/still.rs` | `camera` feature を外したとき。何も映らない絵 |
 | `src/io/control/channel.rs` | ウィンドウ / CEC から届く合図で待つ |
 | `src/io/control/cec.rs` | テレビのリモコン（evdev を直に読む） |
 | `src/io/control/stdin.rs` | ターミナル |
-| `src/io/player/speakers.rs` | rodio で鳴らす |
+| `src/io/player/speakers.rs` | rodio で鳴らす。曲と効果音の2本 |
 | `src/io/audio/assets.rs` | 素材の在処。ファイルか、埋め込みか |
 | `src/io/audio/clip.rs` | 復号済みの音。長さと末尾の無音を測る |
 | `src/io/audio/ears.rs` | cpal で録る。開きっぱなしにして切り出す |
@@ -154,6 +157,34 @@ whisper は入力を必ず30秒ぶん（= 1500）に詰めてからエンコー�
 それでも遅ければ、先に `paths.model` を tiny に落とす。`openblas` /
 `openmp` も選べるが、**Pi 5 は素の NEON が既に速いので上積みは環境次第。**
 `audio_ctx` を 1/4 にしたときとは桁が違う。
+
+## カメラ
+
+macOS では AVFoundation、ラズパイでは V4L2 を `nokhwa` 越しに使う。
+
+| 決めごと | 理由 |
+| --- | --- |
+| **起動時に開く。1台も無ければ止める** | 選んでから気づくと、テレビの前で遊びが始まらない |
+| 撮るのは、遊びが最初に `frame` を呼んでから `rest` まで | カメラを使わない遊びの間はランプを点けない |
+| 名前が見つからなければ、警告して最初のカメラで続ける | マイクと同じ。起動しないほうが困る |
+| 640×480 を MJPEG → YUYV → 何でも、の順に頼む | 縮めて 320×180 にするので、それ以上は復号の手間が増えるだけ |
+| 撮るのは専用のスレッド。溜まった絵は最新だけ渡す | nokhwa の `Camera` はスレッドを跨げないうえ、1枚待つと 30ms 塞がる |
+| 渡す前に左右を反転する | テレビを鏡として見せるため |
+| 映像は保存も送信もしない | 子どもが映るため |
+
+macOS では、初回にカメラの許可を聞かれる。ターミナルから動かすなら
+ターミナルのアプリに、`.app` ならその `.app` に許可を出す。
+
+## 音の口
+
+`Player` の口は2本だけ。
+
+| 口 | 呼び方 | 置き換え |
+| --- | --- | --- |
+| 曲 | `begin` | 前の曲を止めて置き換える |
+| 効果音 | `effect` | 曲は止めない。前の効果音を置き換える |
+
+`silence` は両方止める。
 
 ## 終了コード
 
