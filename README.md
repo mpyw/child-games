@@ -6,7 +6,7 @@
 | 遊び | 名前（`--game`） | 中身 |
 | --- | --- | --- |
 | [どんないろがすき？](games/donna-iro/README.md) | `donna-iro` | 呼びかけに子どもが色名を叫ぶと、その色の続きを歌う。テレビに色を映しながら鳴らす |
-| [ふうせん パン！](games/balloon-crash/README.md) | `balloon-crash` | テレビに鏡のように自分が映り、浮かぶ風船に手で触ると割れる。曲が終わったらお祝い |
+| [ふうせんタッチ](games/balloon-crash/README.md) | `balloon-crash` | テレビに鏡のように自分が映り、浮かぶ風船に手で触ると割れる。曲が終わったら割った数を出してお祝い |
 
 > [!NOTE]
 > **`donna-iro` は2つのものを指す。** このリポジトリ全体（実行ファイル名・
@@ -21,7 +21,7 @@
 | 遊びを作る・足す | [`games/README.md`](games/README.md) |
 | どんないろがすき？の進行と判定 | [`games/donna-iro/README.md`](games/donna-iro/README.md) |
 | どんないろがすき？の音源の作り方 | `games/donna-iro/assets/README.md`（private サブモジュール） |
-| ふうせん パン！の割れ方と風船の出し方 | [`games/balloon-crash/README.md`](games/balloon-crash/README.md) |
+| ふうせんタッチの割れ方と風船の出し方 | [`games/balloon-crash/README.md`](games/balloon-crash/README.md) |
 | 装置（マイク・whisper・カメラ・画面・リモコン）の作り | [`home/README.md`](home/README.md) |
 | ラズパイとテレビ | [`pi/README.md`](pi/README.md) |
 | 画面に出す字のフォント | [`home/fonts/README.md`](home/fonts/README.md) |
@@ -247,7 +247,7 @@ RUSTFMT="$(rustup which --toolchain nightly rustfmt)" cargo fmt
 | `tools/cec-probe.sh` | テレビのリモコンが何をどう届けるかを見る（ラズパイをテレビに繋いでから） |
 | `tools/split_score.py` | どんないろがすき？専用。元譜面から素材ごとの MusicXML を切り出す |
 | `tools/render_reference.py` | どんないろがすき？専用。MusicXML から確認用の合成音を書き出す |
-| `games/balloon-crash/tools/make_sounds.py` | ふうせん パン！の曲と効果音を合成する |
+| `games/balloon-crash/tools/make_sounds.py` | ふうせんタッチの曲と効果音を合成する |
 
 ## whisper のモデル
 

@@ -3,9 +3,10 @@
 //! 画素は知らない。図形を並べて `kit::Scene` にするところまでで、塗るのは
 //! `home` の描き手。
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
-use kit::{Image, Rect, Rgb, Scene, Shape};
+use kit::{Image, Rect, Rgb, Scene, Shape, HEIGHT, WIDTH};
 
 use crate::field::{Field, BURST, COLORS};
 use crate::motion::Moved;
@@ -45,20 +46,57 @@ pub fn playing(mirror: &Image, field: &Field, moved: &Moved, now: Duration) -> S
     }
 }
 
-/// 曲が終わったあと。**割った風船を並べてお祝いする。** 数字は出さない。
+/// 点数に使う字。`Game::glyphs` で `home` に渡し、フォントに入っているかを見させる。
+pub const GLYPHS: &str = "0123456789こ わったね！";
+
+/// 点数の上限。1分で割れるのはせいぜい百数十なので、ここで頭打ちにする。
+const MAX_SCORE: usize = 999;
+
+/// 割った数を書いた字。「12こ わったね！」。
 ///
-/// 1つも割れなかったときも、色を全部並べて同じように祝う。2歳児に
-/// 「できなかった」を見せる理由は無い。
+/// **一度だけ作って持っておく。** `Shape::Text` は `&'static str` しか
+/// 持てない。毎フレーム作って手放せない文字列にすると、遊ぶほど漏れる。
+pub fn score(n: usize) -> &'static str {
+    static TEXTS: OnceLock<Vec<String>> = OnceLock::new();
+    let texts = TEXTS.get_or_init(|| {
+        (0..=MAX_SCORE)
+            .map(|n| format!("{n}こ わったね！"))
+            .collect()
+    });
+    &texts[n.min(MAX_SCORE)]
+}
+
+/// 曲が終わったあと。**上に割った数を出し、下に割った風船を並べて祝う。**
+///
+/// 数字は親が読む。子どもには並んだ風船が見える。1つも割れなかったときも、
+/// 色を全部並べて同じように祝う。2歳児に「できなかった」を見せる理由は無い。
 pub fn finale(popped: &[Rgb], now: Duration) -> Scene {
     let colors: Vec<Rgb> = if popped.is_empty() {
         COLORS.to_vec()
     } else {
         popped.to_vec()
     };
-    let shapes = lineup(Rect::SCREEN, &colors, now);
+    let top = HEIGHT * 28 / 100;
+    let mut shapes = vec![Shape::Text {
+        x: WIDTH / 2,
+        y: HEIGHT * 14 / 100,
+        px: HEIGHT / 8,
+        text: score(popped.len()),
+        fill: (250, 250, 250),
+    }];
+    shapes.extend(lineup(
+        Rect {
+            x: 0,
+            y: top,
+            w: WIDTH,
+            h: HEIGHT - top,
+        },
+        &colors,
+        now,
+    ));
     Scene {
         shapes,
-        caption: format!("── やったね！ {}こ わった ──", popped.len()),
+        caption: format!("── {} ──", score(popped.len())),
         ..Scene::default()
     }
 }
@@ -158,8 +196,6 @@ fn lighten(c: Rgb) -> Rgb {
 
 #[cfg(test)]
 mod tests {
-    use kit::{HEIGHT, WIDTH};
-
     use super::*;
 
     /// **札に縮めても、はみ出さない。** 紐は下へ垂れるので本体だけ見る。
@@ -196,6 +232,38 @@ mod tests {
     /// 1つも割れなくても、お祝いには風船が並ぶ。
     #[test]
     fn nothing_popped_is_still_a_celebration() {
-        assert!(!finale(&[], Duration::ZERO).shapes.is_empty());
+        let circles = finale(&[], Duration::ZERO)
+            .shapes
+            .iter()
+            .filter(|s| matches!(s, Shape::Circle { .. }))
+            .count();
+        assert!(circles > 0);
+    }
+
+    /// **割った数が上に出る。** 並べた風船と重ならない。
+    #[test]
+    fn the_score_is_shown_above_the_lineup() {
+        let scene = finale(&[(255, 0, 0); 12], Duration::ZERO);
+        let Some(&Shape::Text { y, px, text, .. }) = scene.shapes.first() else {
+            panic!("点数が出ていない");
+        };
+        assert_eq!(text, "12こ わったね！");
+        let bottom = y + px / 2;
+        for s in &scene.shapes[1..] {
+            if let Shape::Circle { y: cy, r, .. } = *s {
+                assert!(cy - r >= bottom, "風船が点数に重なった: {s:?}");
+            }
+        }
+    }
+
+    /// 点数の字は、`GLYPHS` に入っているものだけで書ける。
+    #[test]
+    fn the_score_uses_only_the_listed_glyphs() {
+        for n in [0, 7, 42, 999, 5000] {
+            for ch in score(n).chars() {
+                assert!(GLYPHS.contains(ch), "{n}: 「{ch}」が GLYPHS に無い");
+            }
+        }
+        assert_eq!(score(5000), score(999), "頭打ちになっていない");
     }
 }
