@@ -7,15 +7,18 @@
 //! | 型 | 出すもの | 使う遊び |
 //! | --- | --- | --- |
 //! | `Motion` | 前の絵から明るさが変わった升目 | ふうせんタッチ |
-//! | `Flow` | 升目ごとの動いた向きと速さ | おさかなキャッチ！ |
+//! | `Flow` | 升目ごとの動いた向きと速さ | おさかなキャッチ！、たこやき くるりん！ |
+//! | `Grip` | つかんで、振り上げたか（`Flow` から出す） | おさかなキャッチ！、たこやき くるりん！ |
 //!
 //! どちらも手の形は見ない。2歳児はぱーで触るとは限らないので、何で触っても
 //! 同じに扱うほうがいい。モデルも要らないので、ラズパイでも軽い。
 
 mod flow;
 mod grid;
+mod lift;
 mod motion;
 pub mod sample;
 
 pub use flow::{Flow, Flowed, Region, COLS as FLOW_COLS, ROWS as FLOW_ROWS};
+pub use lift::{Grip, Outcome, Seen, Swing};
 pub use motion::{Motion, Moved, COLS, ROWS};

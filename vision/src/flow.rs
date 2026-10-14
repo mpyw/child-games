@@ -148,6 +148,18 @@ impl Flowed {
         }
     }
 
+    /// 動いた升目の真ん中（キャンバスの画素）。画面に光を出すのに使う。
+    pub fn spots(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
+        self.moved
+            .iter()
+            .enumerate()
+            .filter(|(_, &m)| m)
+            .map(|(i, _)| {
+                let (cx, cy) = center(i);
+                (cx as i32, cy as i32)
+            })
+    }
+
     /// 向きが分かった升目。`(真ん中の x, y, ずれの x, y)`、キャンバスの画素。
     /// 調整のために画面へ出すのに使う。
     pub fn vectors(&self) -> impl Iterator<Item = (i32, i32, f32, f32)> + '_ {

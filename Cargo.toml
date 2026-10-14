@@ -34,3 +34,4 @@ vision = { path = "vision" }
 donna-iro = { path = "games/donna-iro" }
 balloon-crash = { path = "games/balloon-crash" }
 fish-catch = { path = "games/fish-catch" }
+takoyaki = { path = "games/takoyaki" }

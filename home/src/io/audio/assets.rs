@@ -222,6 +222,10 @@ const FILES: &[Table] = &[
         "fanfare"
     ),
     table!("fish-catch", "", "song", "grab", "catch", "slip", "fanfare"),
+    table!(
+        "takoyaki", "", "song", "pour", "sizzle", "ready", "flip", "grab", "serve", "slip",
+        "fanfare"
+    ),
 ];
 
 /// const で使う文字列の等値。`==` は const で回せない。
@@ -276,6 +280,10 @@ const _: () = {
     );
     assert!(
         listed(fish_catch::ID, &fish_catch::SOUNDS),
+        "埋め込みの表に無い素材がある（assets.rs の FILES を見ること）"
+    );
+    assert!(
+        listed(takoyaki::ID, &takoyaki::SOUNDS),
         "埋め込みの表に無い素材がある（assets.rs の FILES を見ること）"
     );
 };

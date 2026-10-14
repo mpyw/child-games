@@ -63,7 +63,7 @@ song 開始 ─→ ┌→ カメラの絵を1枚待つ（毎秒30枚くらい）
 
 ## 振り上げの見分け方
 
-**手の形は見ない。動いた向きと速さだけを見る**（`vision::Flow`）。絵を
+**手の形は見ない。動いた向きと速さだけを見る**（`vision::Flow`、つかむ・振り上げるの判定は `vision::Grip`）。絵を
 160×90 の升目に分け、升目ごとに前の絵のどこから来たかを探す（ブロック
 マッチング）。モデルは要らない。
 
@@ -186,4 +186,5 @@ uv run --with numpy python3 games/fish-catch/tools/make_sounds.py
 | `tools/make_sounds.py` | 素材を合成する |
 | `assets/` | 素材（`make_sounds.py` の出力） |
 
-動きの向きと速さを出すのは、共有クレートの `vision`（`vision/src/flow.rs`）。
+動きの向きと速さ、つかんで振り上げたかを出すのは、共有クレートの `vision`
+（`vision/src/flow.rs`、`vision/src/lift.rs`）。

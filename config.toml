@@ -209,3 +209,36 @@ swing_speed = 420.0
 # 棒が白い線まで伸びれば足りている。しきい値を決めるときに使う。
 #   DONNA_IRO_GAMES__FISH_CATCH__SHOW_MOTION
 show_motion = false
+
+
+[games.takoyaki]
+# たこやき くるりん！
+
+# 片面が焼けるまでの秒数の下限と上限（1〜30、cook_min ≦ cook_max）。
+# 穴ごとに、この間でばらつかせる。焼ける順番が自然にばらける。
+#   DONNA_IRO_GAMES__TAKOYAKI__COOK_MIN / __COOK_MAX
+cook_min = 4.0
+cook_max = 8.0
+
+# 明るさがこれだけ変わったら「動いた」とみなす（1〜255）。
+#   DONNA_IRO_GAMES__TAKOYAKI__THRESHOLD
+threshold = 24
+
+# 穴の中で、これだけの割合が動いたら「つついた」とみなす（0 より大きく 1 以下）。
+# 低く取ってある。数に入るのは明るさが変わった升目、つまり指の縁だけなので。
+#   DONNA_IRO_GAMES__TAKOYAKI__POKE_RATIO
+poke_ratio = 0.06
+
+# 穴の中で、これだけの割合が動いたら「つかんだ」とみなす（0 より大きく 1 以下）。
+#   DONNA_IRO_GAMES__TAKOYAKI__GRAB_RATIO
+grab_ratio = 0.05
+
+# 舟皿へ飛ぶ振り上げの速さ（キャンバス 1280×720 の画素 / 秒）。50〜1000。
+# たこ焼きの左右どちらかが、これ以上で上へ動けば飛ぶ（片手でよい）。落とすたびに
+# 下がり（最大で半分）、乗ったら元に戻る。
+#   DONNA_IRO_GAMES__TAKOYAKI__SWING_SPEED
+swing_speed = 380.0
+
+# 動きの向き（上は緑、下は赤）と、振り上げの強さの棒を画面に出す。
+#   DONNA_IRO_GAMES__TAKOYAKI__SHOW_MOTION
+show_motion = false

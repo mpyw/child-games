@@ -183,9 +183,9 @@ fn fish_in_pond(f: &Fish, now: Duration) -> Vec<Shape> {
     let t = now.as_secs_f32();
     let bob = (t * 2.0 + f.phase).sin() * 6.0;
     match f.state {
-        State::Swim { .. } => creature(f.look, f.x, f.y + bob, 1.0, f.facing, t),
+        State::Live(g) if !g.held() => creature(f.look, f.x, f.y + bob, 1.0, f.facing, t),
         // つかまれている。小刻みに跳ねて、まわりに光を出す。
-        State::Held { .. } => {
+        State::Live(_) => {
             let wiggle = (t * 30.0).sin() * 7.0;
             let mut v = sparkles(f.x, f.y, t);
             v.extend(creature(f.look, f.x + wiggle, f.y, 1.05, f.facing, t * 4.0));
@@ -527,7 +527,10 @@ fn debug(flow: &Flowed, pond: &Pond) -> Vec<Shape> {
         .collect();
     let need = pond.need().max(1.0);
     for f in pond.fish() {
-        let State::Held { swing: Some(w), .. } = f.state else {
+        let State::Live(grip) = f.state else {
+            continue;
+        };
+        let Some(w) = grip.swing() else {
             continue;
         };
         // 魚の左右に、振り上げの強さの棒。上の線まで伸びれば足りている。

@@ -50,6 +50,8 @@ pub struct Games {
     pub balloon_crash: balloon_crash::Config,
     /// おさかなキャッチ！
     pub fish_catch: fish_catch::Config,
+    /// たこやき くるりん！
+    pub takoyaki: takoyaki::Config,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -268,6 +270,7 @@ impl Config {
         self.games.donna_iro.validate("games.donna_iro")?;
         self.games.balloon_crash.validate("games.balloon_crash")?;
         self.games.fish_catch.validate("games.fish_catch")?;
+        self.games.takoyaki.validate("games.takoyaki")?;
         // 0 は「音声の長さから決める」の合図。**そこだけ穴を開ける。**
         // 1〜127 を通すと whisper 側が黙って直すので、書いた値と動きが
         // ずれる。指定したのに効いていない、が一番たちが悪い。

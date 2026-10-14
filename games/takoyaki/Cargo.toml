@@ -1,0 +1,14 @@
+[package]
+name = "takoyaki"
+version.workspace = true
+edition.workspace = true
+
+# 装置の crate（nokhwa / rodio / minifb）はここに入れない。
+# 見る・鳴らす・映すは kit のトレイト越しにしか触らない。
+[dependencies]
+kit.workspace = true
+# 動いた所と、つかんで振り上げたかを出す。カメラで遊ぶ遊びどうしで共有する計算。
+vision.workspace = true
+anyhow.workspace = true
+rand.workspace = true
+serde.workspace = true
