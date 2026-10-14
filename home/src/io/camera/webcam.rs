@@ -127,17 +127,42 @@ fn connect(want: Option<&str>) -> Result<nokhwa::Camera> {
     let cams = nokhwa::query(ApiBackend::Auto).context("カメラを探せない")?;
     let names: Vec<String> = cams.iter().map(CameraInfo::human_name).collect();
     anyhow::ensure!(!cams.is_empty(), "カメラが見つからない");
-    let info = choose(&cams, want);
-    eprintln!(
-        "  カメラ {}（見えているもの: {}）",
-        info.human_name(),
-        names.join(", ")
-    );
+    eprintln!("  カメラの候補: {}", names.join(", "));
 
-    // **640×480 から当たるものを探す。** 縮めて 320×180 にするので、
-    // それ以上は復号の手間が増えるだけ。ラズパイでは効く。形式を決め打ち
-    // にすると、持っていないカメラで開けなくなるので、順に試して最後は
-    // 何でもよいにする。
+    // **開けるものが見つかるまで順に試す。** 1台のカメラが複数の口を
+    // 生やすことがある。ラズパイの V15AF は `/dev/video0`（絵）と
+    // `/dev/video1`（付帯情報）の2つを同じ名前で出し、後者は開けない。
+    // 名前で1つに決め打ちしていた頃は、そちらを掴んで起動ごと落ちた。
+    let mut failed = Vec::new();
+    for i in candidates(&names, want) {
+        let info = &cams[i];
+        match open(info) {
+            Ok(cam) => {
+                let f = cam.camera_format();
+                eprintln!(
+                    "  カメラ {}（{}）{}×{} {:?} {}fps",
+                    info.human_name(),
+                    info.index(),
+                    f.width(),
+                    f.height(),
+                    f.format(),
+                    f.frame_rate()
+                );
+                return Ok(cam);
+            }
+            Err(e) => failed.push(format!("{}（{}）: {e}", info.human_name(), info.index())),
+        }
+    }
+    anyhow::bail!("カメラを開けない\n    {}", failed.join("\n    "))
+}
+
+/// 1つのカメラを開く。撮り始めはしない。
+///
+/// **640×480 から当たるものを探す。** 縮めて 320×180 にするので、
+/// それ以上は復号の手間が増えるだけ。ラズパイでは効く。形式を決め打ち
+/// にすると、持っていないカメラで開けなくなるので、順に試して最後は
+/// 何でもよいにする。
+fn open(info: &CameraInfo) -> Result<nokhwa::Camera, nokhwa::NokhwaError> {
     let wants = [
         RequestedFormatType::Closest(CameraFormat::new(
             Resolution::new(640, 480),
@@ -154,40 +179,30 @@ fn connect(want: Option<&str>) -> Result<nokhwa::Camera> {
     let mut last = None;
     for w in wants {
         match nokhwa::Camera::new(info.index().clone(), RequestedFormat::new::<RgbFormat>(w)) {
-            Ok(cam) => {
-                let f = cam.camera_format();
-                eprintln!(
-                    "  カメラの形式 {}×{} {:?} {}fps",
-                    f.width(),
-                    f.height(),
-                    f.format(),
-                    f.frame_rate()
-                );
-                return Ok(cam);
-            }
+            Ok(cam) => return Ok(cam),
             Err(e) => last = Some(e),
         }
     }
-    Err(anyhow::anyhow!("カメラを開けない: {}", info.human_name()))
-        .context(last.map(|e| e.to_string()).unwrap_or_default())
+    Err(last.expect("頼む形式は空ではない"))
 }
 
-/// 名前の一部で選ぶ。**見つからなければ警告して先頭を使う。** マイクと
-/// 同じで、テレビに繋ぎっぱなしの玩具は起動しないほうが困る。
-fn choose<'a>(cams: &'a [CameraInfo], want: Option<&str>) -> &'a CameraInfo {
+/// 試す順。名前の一部で選ぶなら、当たるものだけを並んだ順に。
+///
+/// **当たるものが無ければ警告して全部を試す。** マイクと同じで、テレビに
+/// 繋ぎっぱなしの玩具は起動しないほうが困る。
+fn candidates(names: &[String], want: Option<&str>) -> Vec<usize> {
+    let all = (0..names.len()).collect();
     let Some(want) = want else {
-        return &cams[0];
+        return all;
     };
-    match cams.iter().find(|c| c.human_name().contains(want)) {
-        Some(c) => c,
-        None => {
-            eprintln!(
-                "  ⚠ カメラ「{want}」が見つからないので {} を使う",
-                cams[0].human_name()
-            );
-            &cams[0]
-        }
+    let hits: Vec<usize> = (0..names.len())
+        .filter(|&i| names[i].contains(want))
+        .collect();
+    if hits.is_empty() {
+        eprintln!("  ⚠ カメラ「{want}」が見つからないので、見えているものを順に試す");
+        return all;
     }
+    hits
 }
 
 /// 頼まれたら撮って送る。遊びの側が落ちたら抜ける。
@@ -236,5 +251,35 @@ fn serve(
             }
         }
         let _ = cam.stop_stream();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::candidates;
+
+    fn names(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// **同じ名前が2つあれば、両方試す。** 開けない口を掴んで落ちないように。
+    #[test]
+    fn every_camera_with_the_name_is_a_candidate() {
+        let n = names(&["V15AF", "V15AF", "pispbe-input", "rpi-hevc-dec"]);
+        assert_eq!(candidates(&n, Some("V15AF")), [0, 1]);
+    }
+
+    /// 名前が無ければ、見えている順に全部。
+    #[test]
+    fn no_name_means_everything_in_order() {
+        let n = names(&["MacBook Pro Camera", "Desk View"]);
+        assert_eq!(candidates(&n, None), [0, 1]);
+    }
+
+    /// 当たらない名前でも起動は止めない。全部を試す。
+    #[test]
+    fn an_unknown_name_falls_back_to_everything() {
+        let n = names(&["MacBook Pro Camera"]);
+        assert_eq!(candidates(&n, Some("V15AF")), [0]);
     }
 }
