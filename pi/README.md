@@ -8,6 +8,7 @@
 | --- | --- |
 | Raspberry Pi 5 | **デスクトップ版の OS**（trixie）。コンソール起動だとウィンドウが開けない |
 | USB マイク | 離れた場所から拾うなら ReSpeaker などのマイクアレイ HAT |
+| USB カメラ | **無いと起動しない。** UVC の Web カメラなら V4L2 で動く。今のマイクの V15AF は Web カメラなので使える見込み（実機では未確認） |
 | テレビ | HDMI で繋ぐ |
 
 > [!TIP]
@@ -66,7 +67,7 @@ ssh pi5 'cd donna-iro && ./donna-iro --terminal --keyboard'
 | --- | --- | --- |
 | バイナリ | `~/donna-iro/donna-iro` | |
 | `config.toml` | `~/donna-iro/config.toml` | |
-| 音源 | `~/donna-iro/games/donna-iro/assets/` | 手元と同じ並び。本番が無ければ `reference/` を送る |
+| 音源 | `~/donna-iro/games/<name>/assets/` | 遊びごと、手元と同じ並び。本番が無ければ `reference/` を送る |
 | whisper のモデル | `~/donna-iro/models/` | `models/*.bin` を全部。`tiny` に落として比べるのもそのままできる |
 | OS 側の設定 | 下の表 | |
 
@@ -76,9 +77,6 @@ ssh pi5 'cd donna-iro && ./donna-iro --terminal --keyboard'
 **音源は手元から送る。** 音源は private サブモジュールなので、Pi に鍵を
 置いて `known_hosts` を通すまで、Pi 側では clone できない。
 
-> [!WARNING]
-> **送る音源は、いまは `games/donna-iro/assets/` だけ。** 素材を持つ遊びを
-> 足したら `tools/build-pi.sh` も直すこと（[`games/README.md`](../games/README.md#遊びを足す)）。
 
 ## OS 側の設定
 

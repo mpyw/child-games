@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 
-use crate::{Control, Listener, Player, Rect, Scene, Screen, Shape};
+use crate::{Camera, Control, Listener, Player, Rect, Scene, Screen, Shape};
 
 /// 遊びに貸す装置。**持ち主は `home`。** 遊びが終われば返ってくるので、
 /// 次に選ばれた遊びが同じものを使う。
@@ -13,6 +13,8 @@ pub struct Devices {
     pub listener: Box<dyn Listener>,
     pub screen: Box<dyn Screen>,
     pub control: Box<dyn Control>,
+    /// 使わない遊びもある。使った遊びは、終わるときに `rest` で休ませる。
+    pub camera: Box<dyn Camera>,
 }
 
 /// ひと続き遊び終えたあと、どうなったか。

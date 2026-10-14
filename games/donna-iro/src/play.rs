@@ -263,7 +263,7 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use kit::{Control, Game, Listener, Player, Press, Screen, Sound, Timing};
+    use kit::{Camera, Control, Game, Image, Listener, Player, Press, Screen, Sound, Timing};
     use strum::VariantArray;
 
     use super::*;
@@ -290,6 +290,9 @@ mod tests {
                 audible: Duration::ZERO,
             })
         }
+        fn effect(&self, _sound: Sound) -> Result<()> {
+            unreachable!("どんないろがすき？は効果音を鳴らさない")
+        }
         fn silence(&self) {
             *self.silenced.borrow_mut() += 1;
         }
@@ -315,6 +318,12 @@ mod tests {
     struct Blind;
     impl Screen for Blind {
         fn show(&mut self, _scene: Scene) {}
+    }
+    impl Camera for Blind {
+        fn frame(&mut self) -> Result<Image> {
+            unreachable!("どんないろがすき？はカメラを見ない")
+        }
+        fn rest(&mut self) {}
     }
 
     /// 何も押されない。
@@ -354,6 +363,7 @@ mod tests {
             listener: Box::new(listener),
             screen: Box::new(Blind),
             control: Box::new(control),
+            camera: Box::new(Blind),
         }
     }
 

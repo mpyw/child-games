@@ -121,6 +121,19 @@ threshold = 0.0
 #   DONNA_IRO_RECOGNIZE__AUDIO_CTX
 audio_ctx = 0
 
+
+[camera]
+# 使うカメラ。名前の一部を書けば選べる。空なら最初に見つかったもの。
+#
+# **カメラが1台も無ければ起動時にエラーで止まる。** 見つからない名前を
+# 書いたときは、マイクと同じく警告を出して最初のもので続ける。起動時に
+# 「カメラ ...」の行で、使っているものと見えているものが分かる。
+#
+# 開くのは起動時だが、撮るのはカメラで遊ぶ遊びの間だけ。ほかの遊びの間は
+# ランプが点かない。映像は画面に出すだけで、保存も送信もしない。
+#   DONNA_IRO_CAMERA__DEVICE
+device = ""
+
 # --- 遊びごとの節 ---
 #
 # 節の名前は遊びの名前の - を _ にしたもの（環境変数に - は使えない）。
@@ -146,3 +159,20 @@ flash_ms = 500
 #   DONNA_IRO_GAMES__DONNA_IRO__HEAD_SEGMENTS
 head_segments = 2
 
+
+[games.balloon_crash]
+# ふうせん パン！
+
+# 画面に同時に出す風船の数。1〜6。多いと、どれを狙うかで迷う。
+#   DONNA_IRO_GAMES__BALLOON_CRASH__MAX_BALLOONS
+max_balloons = 3
+
+# 明るさがこれだけ変わったら「動いた」とみなす（1〜255）。
+# 下げるほど小さな動きで割れるが、カメラのざらつきでも割れやすくなる。
+#   DONNA_IRO_GAMES__BALLOON_CRASH__THRESHOLD
+threshold = 28
+
+# 風船の中で、これだけの割合が動いたら割る（0 より大きく 1 以下）。
+# 下げるほど指先でも割れる。上げると体ごとぶつからないと割れない。
+#   DONNA_IRO_GAMES__BALLOON_CRASH__TOUCH_RATIO
+touch_ratio = 0.2

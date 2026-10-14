@@ -25,13 +25,17 @@ VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 # 本番音源が無ければ確認用の合成音で組む。実行時と違って埋め込みには
 # フォールバックが効かないので、ここで選ぶ。assets/ にコピーする手も
 # あるが、あそこは private サブモジュールなので汚したくない。
+#
+# **見るのは合成音（reference/）を持つ遊びだけ。** 1つでも本番が欠けて
+# いれば、合成音を持つ遊びは全部合成音で組む（embed-reference は全体に効く）。
 FEATURES=embed
-if ! ls games/donna-iro/assets/*.wav >/dev/null 2>&1; then
-  if ls games/donna-iro/assets/reference/*.wav >/dev/null 2>&1; then
-    echo "本番音源が無いので、確認用の合成音を埋め込みます（games/donna-iro/assets/reference/）" >&2
+for ref in games/*/assets/reference; do
+  [ -d "$ref" ] || continue
+  if ! ls "$(dirname "$ref")"/*.wav >/dev/null 2>&1; then
+    echo "本番音源が無いので、確認用の合成音を埋め込みます（$ref）" >&2
     FEATURES=embed,embed-reference
   fi
-fi
+done
 
 echo "ビルド中（Metal は macOS で既定有効。whisper.cpp を組み直すので数分かかります）"
 if ! cargo build --release --features "$FEATURES"; then
@@ -57,8 +61,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
   <key>CFBundleExecutable</key><string>$NAME</string>
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-  <key>CFBundleName</key><string>どんないろがすき</string>
-  <key>CFBundleDisplayName</key><string>どんないろがすき</string>
+  <key>CFBundleName</key><string>donna-iro</string>
+  <key>CFBundleDisplayName</key><string>donna-iro</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
@@ -67,11 +71,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <!-- これが無いと GUI アプリはマイクを取れない。文言はダイアログに出る。 -->
   <key>NSMicrophoneUsageDescription</key>
   <string>「どんないろがすき？」の答えを聞き取るためにマイクを使います。</string>
+  <!-- カメラも同じ。無いと開いた瞬間に落とされる。映像は画面に出すだけ。 -->
+  <key>NSCameraUsageDescription</key>
+  <string>「ふうせん パン！」で、画面に自分の姿を映して風船に触るためにカメラを使います。映像は保存も送信もしません。</string>
 </dict>
 </plist>
 PLIST
 
-# アドホック署名。配布用ではないが、これが無いとマイクの許可が
+# アドホック署名。配布用ではないが、これが無いとマイクやカメラの許可が
 # 毎回リセットされたり、そもそも起動を拒まれたりする。
 codesign --force --deep --sign - "$APP"
 
@@ -79,5 +86,5 @@ echo
 echo "完成: $ROOT/$APP ($(du -sh "$APP" | cut -f1))"
 echo "  open $APP"
 echo
-echo "初回はマイクの許可を聞かれます。拒否すると認識が動きません。"
-echo "あとから変えるには システム設定 → プライバシーとセキュリティ → マイク。"
+echo "初回はマイクとカメラの許可を聞かれます。拒否すると認識とカメラが動きません。"
+echo "あとから変えるには システム設定 → プライバシーとセキュリティ → マイク / カメラ。"

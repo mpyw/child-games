@@ -125,14 +125,72 @@ impl Shape {
     }
 }
 
+/// 画素を並べた絵。左上から1行ずつ。
+///
+/// **`Shape` には入れない。** `Shape` は `Copy` で、画素の束を持てない。
+/// 1枚の絵は場面に1つあれば足りる（カメラの鏡像）ので、`Scene` の側に
+/// 欄を設ける。画素は `Arc` で持つので、場面を複製しても写さない。
+#[derive(Debug, Clone, PartialEq)]
+pub struct Image {
+    pub width: usize,
+    pub height: usize,
+    /// `width * height` 個。
+    pub pixels: std::sync::Arc<[Rgb]>,
+}
+
+impl Image {
+    /// 一色で塗った絵。
+    pub fn filled(width: usize, height: usize, c: Rgb) -> Image {
+        Image {
+            width,
+            height,
+            pixels: vec![c; width * height].into(),
+        }
+    }
+
+    /// `(x, y)` の画素。
+    pub fn at(&self, x: usize, y: usize) -> Rgb {
+        self.pixels[y * self.width + x]
+    }
+
+    /// 色を `f` 倍する。`Shape::shaded` と同じ。
+    pub fn shaded(&self, f: f32) -> Image {
+        let m = |v: u8| (v as f32 * f).clamp(0.0, 255.0) as u8;
+        Image {
+            width: self.width,
+            height: self.height,
+            pixels: self
+                .pixels
+                .iter()
+                .map(|c| (m(c.0), m(c.1), m(c.2)))
+                .collect(),
+        }
+    }
+}
+
 /// 今なにを映すか。
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Scene {
+    /// 図形の下に敷く絵。**キャンバス全体に伸ばす**（縦横比は描き手が
+    /// 保つとは限らないので、16:9 で渡すこと）。無ければ `BACKGROUND`。
+    pub image: Option<Image>,
     /// ウィンドウに描くもの。
     pub shapes: Vec<Shape>,
     /// ターミナルに出す1行。**動作確認用なので進行が追えれば足りる。**
     /// 空なら何も出さない。
     pub caption: String,
+}
+
+impl Scene {
+    /// 図形も絵も `f` 倍に暗くする。「もう1回」の画面で後ろに敷くため。
+    /// ボタンは暗くしない（`Shape::shaded`）。
+    pub fn shaded(self, f: f32) -> Scene {
+        Scene {
+            image: self.image.map(|i| i.shaded(f)),
+            shapes: self.shapes.into_iter().map(|s| s.shaded(f)).collect(),
+            caption: self.caption,
+        }
+    }
 }
 
 pub trait Screen: Send {

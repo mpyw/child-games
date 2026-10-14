@@ -31,3 +31,4 @@ const_for = "0.1"
 
 kit = { path = "kit" }
 donna-iro = { path = "games/donna-iro" }
+balloon-crash = { path = "games/balloon-crash" }

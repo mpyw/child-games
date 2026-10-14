@@ -9,7 +9,7 @@
          xdg_surface.get_toplevel() → surface.commit()（= map）→ set_title
        の順で、**map の時点でタイトルが空**。しかも set_app_id を一度も
        呼ばないので app_id も無い。labwc は map のときにルールを当てるため、
-       title="どんないろがすき" も identifier="..." も一致しない
+       title="donna-iro" も identifier="..." も一致しない
        （X11 backend も XMapRaised → XStoreName の順で同じ。XSetClassHint も
        呼ばないので WM_CLASS すら無い）。だから "*" しか当てる手が無い。
 

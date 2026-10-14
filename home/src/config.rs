@@ -34,6 +34,7 @@ pub struct Config {
     pub paths: Paths,
     pub listen: Listen,
     pub recognize: Recognize,
+    pub camera: Camera,
     pub games: Games,
 }
 
@@ -45,6 +46,25 @@ pub struct Games {
     ///
     /// 節の名前は `-` ではなく `_`。環境変数の名前に `-` は使えない。
     pub donna_iro: donna_iro::Config,
+    /// ふうせん パン！
+    pub balloon_crash: balloon_crash::Config,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Camera {
+    /// 使うカメラ。名前の一部で選ぶ。空なら最初に見つかったもの。
+    ///
+    /// **読むときは `device()` を通すこと。** `Listen::device` と同じ。
+    device: String,
+}
+
+impl Camera {
+    /// 名前で選ぶなら、その一部。空なら最初に見つかったもの。
+    #[cfg_attr(not(feature = "camera"), allow(dead_code))]
+    pub fn device(&self) -> Option<&str> {
+        (!self.device.is_empty()).then_some(self.device.as_str())
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -244,6 +264,7 @@ impl Config {
             );
         }
         self.games.donna_iro.validate("games.donna_iro")?;
+        self.games.balloon_crash.validate("games.balloon_crash")?;
         // 0 は「音声の長さから決める」の合図。**そこだけ穴を開ける。**
         // 1〜127 を通すと whisper 側が黙って直すので、書いた値と動きが
         // ずれる。指定したのに効いていない、が一番たちが悪い。
