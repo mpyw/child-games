@@ -185,7 +185,7 @@ touch_ratio = 0.2
 
 # 池に同時に泳がせる魚の数。1〜4。
 #   DONNA_IRO_GAMES__FISH_CATCH__MAX_FISH
-max_fish = 2
+max_fish = 3
 
 # 明るさがこれだけ変わったら「動いた」とみなす（1〜255）。
 #   DONNA_IRO_GAMES__FISH_CATCH__THRESHOLD
