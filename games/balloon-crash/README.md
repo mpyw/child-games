@@ -126,8 +126,8 @@ uv run --with numpy python3 games/balloon-crash/tools/make_sounds.py
 | キー | 既定 | |
 | --- | --- | --- |
 | `max_balloons` | 3 | 画面に同時に出す風船の数（1〜6） |
-| `threshold` | 28 | 明るさがこれだけ変わったら「動いた」とみなす（1〜255） |
-| `touch_ratio` | 0.2 | 風船の中で、これだけの割合が動いたら割る |
+| `threshold` | 16 | 明るさがこれだけ変わったら「動いた」とみなす（1〜255） |
+| `touch_ratio` | 0.1 | 風船の中で、これだけの割合が動いたら割る |
 | `show_motion` | false | 動いた所に小さな点を出す（調整用） |
 
 | 困りごと | 動かすもの |

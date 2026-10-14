@@ -172,12 +172,12 @@ max_balloons = 3
 # 明るさがこれだけ変わったら「動いた」とみなす（1〜255）。
 # 下げるほど小さな動きで割れるが、カメラのざらつきでも割れやすくなる。
 #   CHILD_GAMES_GAMES__BALLOON_CRASH__THRESHOLD
-threshold = 28
+threshold = 16
 
 # 風船の中で、これだけの割合が動いたら割る（0 より大きく 1 以下）。
 # 下げるほど指先でも割れる。上げると体ごとぶつからないと割れない。
 #   CHILD_GAMES_GAMES__BALLOON_CRASH__TOUCH_RATIO
-touch_ratio = 0.2
+touch_ratio = 0.1
 
 # 動いた所に小さな点を出す。しきい値を決めるときに使う。
 #   CHILD_GAMES_GAMES__BALLOON_CRASH__SHOW_MOTION
@@ -193,13 +193,13 @@ max_fish = 3
 
 # 明るさがこれだけ変わったら「動いた」とみなす（1〜255）。
 #   CHILD_GAMES_GAMES__FISH_CATCH__THRESHOLD
-threshold = 24
+threshold = 16
 
 # 魚のまわりで、これだけの割合が動いたら「つかんだ」とみなす（0 より大きく 1 以下）。
 # 低く取ってある。数に入るのは明るさが変わった升目、つまり手の縁だけなので、
 # 魚のまわりで手を揺らしても 5〜10% にしかならない。
 #   CHILD_GAMES_GAMES__FISH_CATCH__GRAB_RATIO
-grab_ratio = 0.05
+grab_ratio = 0.04
 
 # 釣れる振り上げの速さ（キャンバス 1280×720 の画素 / 秒）。50〜1000。
 # 上限は測れる速さで決まる。カメラが毎秒13枚（ラズパイの V15AF、暗い部屋）なら
@@ -207,7 +207,7 @@ grab_ratio = 0.05
 # 魚の左右どちらかが、これ以上で上へ動けば釣れる（片手でよい）。逃げるたびに
 # 下がり（最大で半分）、釣れたら元に戻る。
 #   CHILD_GAMES_GAMES__FISH_CATCH__SWING_SPEED
-swing_speed = 420.0
+swing_speed = 300.0
 
 # 動きの向き（上は緑、下は赤）と、振り上げの強さの棒を画面に出す。
 # 棒が白い線まで伸びれば足りている。しきい値を決めるときに使う。
@@ -226,22 +226,22 @@ cook_max = 8.0
 
 # 明るさがこれだけ変わったら「動いた」とみなす（1〜255）。
 #   CHILD_GAMES_GAMES__TAKOYAKI__THRESHOLD
-threshold = 24
+threshold = 16
 
 # 穴の中で、これだけの割合が動いたら「つついた」とみなす（0 より大きく 1 以下）。
 # 低く取ってある。数に入るのは明るさが変わった升目、つまり指の縁だけなので。
 #   CHILD_GAMES_GAMES__TAKOYAKI__POKE_RATIO
-poke_ratio = 0.06
+poke_ratio = 0.04
 
 # 穴の中で、これだけの割合が動いたら「つかんだ」とみなす（0 より大きく 1 以下）。
 #   CHILD_GAMES_GAMES__TAKOYAKI__GRAB_RATIO
-grab_ratio = 0.05
+grab_ratio = 0.04
 
 # 舟皿へ飛ぶ振り上げの速さ（キャンバス 1280×720 の画素 / 秒）。50〜1000。
 # たこ焼きの左右どちらかが、これ以上で上へ動けば飛ぶ（片手でよい）。落とすたびに
 # 下がり（最大で半分）、乗ったら元に戻る。
 #   CHILD_GAMES_GAMES__TAKOYAKI__SWING_SPEED
-swing_speed = 380.0
+swing_speed = 280.0
 
 # 動いた所の点、動きの向き（上は緑、下は赤）、振り上げの強さの棒を画面に出す。
 #   CHILD_GAMES_GAMES__TAKOYAKI__SHOW_MOTION

@@ -61,6 +61,13 @@ pub struct Region {
     /// 向きが分かった升目の、上向きの速さの平均（キャンバスの画素 / 1枚）。
     /// **上が正。** 下へ動けば負になる。
     pub up: f32,
+    /// 向きが分かった升目のうち、**速いほうから 4 分の 1 の所**の上向きの速さ
+    /// （キャンバスの画素 / 1枚）。振り上げの強さはこちらで見る。
+    ///
+    /// **平均では見ない。** 振り上げた手のまわりには、ほとんど動かない升目
+    /// （体の揺れ、もう片方の手、影）も向きを持って混ざる。平均するとそれに
+    /// 薄められ、手を大きく振らないと届かなくなる。
+    pub rising: f32,
     /// 向きが分かった升目の数。少なければ `up` は当てにならない。
     pub vectors: usize,
 }
@@ -124,15 +131,17 @@ impl Flowed {
     pub fn region(&self, area: Rect) -> Region {
         let (x0, y0) = (area.x as f32, area.y as f32);
         let (x1, y1) = (x0 + area.w as f32, y0 + area.h as f32);
-        let (mut inside, mut moved, mut up, mut vectors) = (0usize, 0usize, 0.0f32, 0usize);
+        let (mut inside, mut moved, mut ups) = (0usize, 0usize, Vec::new());
         for (i, _) in self.cells_in(x0, y0, x1, y1) {
             inside += 1;
             moved += self.moved[i] as usize;
             if let Some((_, vy)) = self.vectors[i] {
-                up -= vy;
-                vectors += 1;
+                ups.push(-vy);
             }
         }
+        let vectors = ups.len();
+        let up: f32 = ups.iter().sum();
+        ups.sort_by(f32::total_cmp);
         Region {
             moving: if inside == 0 {
                 0.0
@@ -144,6 +153,7 @@ impl Flowed {
             } else {
                 up / vectors as f32
             },
+            rising: ups.get(vectors * 3 / 4).copied().unwrap_or(0.0),
             vectors,
         }
     }
@@ -288,6 +298,7 @@ mod tests {
 
         let down = between(&blob(640, 390, 70), &blob(640, 420, 70)).region(AROUND);
         assert!(down.up < -20.0, "下へ動いたのに上向きに見えた: {down:?}");
+        assert!(down.rising < 0.0, "下へ動いたのに上向きに見えた: {down:?}");
     }
 
     /// **カメラの枚数が少なくても、速い振り上げを取りこぼさない。** 毎秒13枚で
@@ -305,6 +316,24 @@ mod tests {
             (55.0..85.0).contains(&fast.up),
             "上へ 70 画素のはず: {fast:?}"
         );
+    }
+
+    /// **大きく動かない所が混ざっても、振り上げた手の速さは薄まらない。**
+    /// 横に少し揺れる大きな塊の隣で、小さな手だけが速く上がる。
+    #[test]
+    fn a_quick_hand_is_not_diluted_by_slow_surroundings() {
+        let r = between(
+            &blobs(&[(500, 420, 110), (800, 460, 40)]),
+            &blobs(&[(508, 420, 110), (800, 400, 40)]),
+        )
+        .region(Rect {
+            x: 340,
+            y: 200,
+            w: 560,
+            h: 400,
+        });
+        assert!(r.up < 30.0, "平均は薄まる前提が崩れた: {r:?}");
+        assert!(r.rising > 45.0, "上へ 60 画素の手が見えていない: {r:?}");
     }
 
     /// 横へ動いただけなら、上向きの速さはほぼ 0。

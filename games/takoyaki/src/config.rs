@@ -33,10 +33,10 @@ impl Default for Config {
         Self {
             cook_min: 4.0,
             cook_max: 8.0,
-            threshold: 24,
-            poke_ratio: 0.06,
-            grab_ratio: 0.05,
-            swing_speed: 380.0,
+            threshold: 16,
+            poke_ratio: 0.04,
+            grab_ratio: 0.04,
+            swing_speed: 280.0,
             show_motion: false,
         }
     }
