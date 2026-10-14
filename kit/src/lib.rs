@@ -24,4 +24,4 @@ pub use control::{Control, Press};
 pub use game::{Devices, Ended, Game};
 pub use listener::{Heard, Listener};
 pub use player::{Player, Sound, Timing};
-pub use screen::{Image, Rect, Rgb, Scene, Screen, Shape, BACKGROUND, HEIGHT, WIDTH};
+pub use screen::{Cap, Image, Rect, Rgb, Scene, Screen, Shape, BACKGROUND, HEIGHT, WIDTH};
