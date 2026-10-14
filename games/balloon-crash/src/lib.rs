@@ -6,13 +6,12 @@
 //! **装置にもファイルにも触らない。** 見る・鳴らす・映す・押されたは
 //! `kit` のトレイト越しにだけ受け取る。動いたかどうかの判断も、風船の
 //! 当たり判定も、絵と時刻を受け取る純粋な計算なので、装置なしで
-//! テストできる（`motion.rs`、`field.rs`）。
+//! テストできる（`field.rs`、動いた所を出すのは `vision`）。
 
 mod config;
 mod cue;
 mod field;
 mod look;
-mod motion;
 mod play;
 
 pub use config::Config;

@@ -9,7 +9,7 @@
 # 遊びの側が装置に触れないのも、この依存の向きがそのまま保証している。
 [workspace]
 resolver = "2"
-members = ["home", "kit", "games/*"]
+members = ["home", "kit", "vision", "games/*"]
 # `cargo run` / `cargo build` を素で叩いたときに組むのは home。
 # 遊びは home から依存で引かれるので、ここに並べなくても組まれる。
 default-members = ["home"]
@@ -30,5 +30,7 @@ strum = { version = "0.28", features = ["derive"] }
 const_for = "0.1"
 
 kit = { path = "kit" }
+vision = { path = "vision" }
 donna-iro = { path = "games/donna-iro" }
 balloon-crash = { path = "games/balloon-crash" }
+fish-catch = { path = "games/fish-catch" }

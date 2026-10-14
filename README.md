@@ -7,6 +7,7 @@
 | --- | --- | --- |
 | [どんないろがすき？](games/donna-iro/README.md) | `donna-iro` | 呼びかけに子どもが色名を叫ぶと、その色の続きを歌う。テレビに色を映しながら鳴らす |
 | [ふうせんタッチ](games/balloon-crash/README.md) | `balloon-crash` | テレビに鏡のように自分が映り、浮かぶ風船に手で触ると割れる。曲が終わったら割った数を出してお祝い |
+| [おさかなキャッチ！](games/fish-catch/README.md) | `fish-catch` | 池に映った自分の手で魚をつかみ、両手で勢いよく振り上げると釣れる。曲が終わったら釣った数を出してお祝い |
 
 > [!NOTE]
 > **`donna-iro` は2つのものを指す。** このリポジトリ全体（実行ファイル名・
@@ -22,6 +23,7 @@
 | どんないろがすき？の進行と判定 | [`games/donna-iro/README.md`](games/donna-iro/README.md) |
 | どんないろがすき？の音源の作り方 | `games/donna-iro/assets/README.md`（private サブモジュール） |
 | ふうせんタッチの割れ方と風船の出し方 | [`games/balloon-crash/README.md`](games/balloon-crash/README.md) |
+| おさかなキャッチ！の振り上げの見分け方 | [`games/fish-catch/README.md`](games/fish-catch/README.md) |
 | 装置（マイク・whisper・カメラ・画面・リモコン）の作り | [`home/README.md`](home/README.md) |
 | ラズパイとテレビ | [`pi/README.md`](pi/README.md) |
 | 画面に出す字のフォント | [`home/fonts/README.md`](home/fonts/README.md) |
@@ -176,13 +178,14 @@ private サブモジュールなので汚したくない。
 
 ## 構成
 
-**ワークスペースを3層に分けてある。**
+**ワークスペースを3層に分けてある。** 遊びが共有する純粋な計算は `vision/` に置く。
 
 | クレート | 中身 | 読んでよいもの | 詳しく |
 | --- | --- | --- | --- |
 | `home/` | 起動、メニュー、装置、設定の読み込み | `kit` と全部の遊び | [`home/README.md`](home/README.md) |
 | `kit/` | 遊びと装置の継ぎ目。トレイトと、描く図形だけ | 何も読まない | [`games/README.md`](games/README.md#kit--遊びが知ってよいもの) |
-| `games/<name>/` | 遊びそのもの。**装置にもファイルにも触らない** | `kit` だけ | [`games/README.md`](games/README.md) |
+| `vision/` | カメラの絵から、どこが・どちらへ動いたかを出す計算。装置に触らない | `kit` だけ | [`games/README.md`](games/README.md#vision--遊びが共有する計算) |
+| `games/<name>/` | 遊びそのもの。**装置にもファイルにも触らない** | `kit` と `vision` | [`games/README.md`](games/README.md) |
 
 ```mermaid
 flowchart TD
@@ -195,21 +198,29 @@ flowchart TD
 
     subgraph games["games/ — 遊び。装置に触らない"]
         donna["donna-iro/"]
+        balloon["balloon-crash/"]
+        fish["fish-catch/"]
     end
 
     kit["kit — トレイトと図形"]
+    vision["vision — 動きの計算"]
 
     main --> menu
     main --> io
     main --> config
-    main --> donna
-    config --> donna
+    main --> games
+    config --> games
     menu --> kit
     io --> kit
     donna --> kit
+    balloon --> kit
+    fish --> kit
+    balloon --> vision
+    fish --> vision
+    vision --> kit
 
     classDef base fill:#eee,stroke:#999,color:#333;
-    class kit base;
+    class kit,vision base;
 ```
 
 > [!IMPORTANT]
@@ -248,6 +259,7 @@ RUSTFMT="$(rustup which --toolchain nightly rustfmt)" cargo fmt
 | `tools/split_score.py` | どんないろがすき？専用。元譜面から素材ごとの MusicXML を切り出す |
 | `tools/render_reference.py` | どんないろがすき？専用。MusicXML から確認用の合成音を書き出す |
 | `games/balloon-crash/tools/make_sounds.py` | ふうせんタッチの曲と効果音を合成する |
+| `games/fish-catch/tools/make_sounds.py` | おさかなキャッチ！の曲と効果音を合成する |
 
 ## whisper のモデル
 

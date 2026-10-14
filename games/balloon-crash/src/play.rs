@@ -17,12 +17,12 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use kit::{Devices, Ended, Press, Rect, Rgb, Scene, Shape};
+use vision::Motion;
 
 use crate::config::Config;
 use crate::cue::Cue;
 use crate::field::Field;
 use crate::look;
-use crate::motion::Motion;
 
 /// お祝いの間に画面を描き直す間隔。カメラを見ないので自分で刻む。
 const TICK: Duration = Duration::from_millis(33);
@@ -145,9 +145,9 @@ mod tests {
     use std::rc::Rc;
 
     use kit::{Camera, Control, Game, Heard, Image, Listener, Player, Screen, Sound, Timing};
+    use vision::sample::grey;
 
     use super::*;
-    use crate::motion::tests::grey;
 
     /// 鳴らしたものと止めた回数。
     #[derive(Default)]

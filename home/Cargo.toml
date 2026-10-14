@@ -55,6 +55,7 @@ kit.workspace = true
 # メニューに並べる遊び。足すときはここと main.rs の `catalog` に書く。
 donna-iro.workspace = true
 balloon-crash.workspace = true
+fish-catch.workspace = true
 
 anyhow.workspace = true
 serde.workspace = true

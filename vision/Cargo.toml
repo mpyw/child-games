@@ -1,0 +1,9 @@
+[package]
+name = "vision"
+version.workspace = true
+edition.workspace = true
+
+# **純粋な計算だけを置く。** 絵を受け取って数を返す。装置にもファイルにも
+# 触らないので、遊びから読んでよい。依存も kit だけに留める。
+[dependencies]
+kit.workspace = true

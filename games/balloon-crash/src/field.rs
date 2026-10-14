@@ -8,9 +8,9 @@ use std::time::Duration;
 use kit::{Rgb, HEIGHT, WIDTH};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use vision::Moved;
 
 use crate::config::Config;
-use crate::motion::Moved;
 
 /// 風船の色。離れたテレビでも見分けられる、はっきりした色だけ。
 pub const COLORS: [Rgb; 8] = [
@@ -240,9 +240,10 @@ fn speed(y: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use vision::sample::{blob, grey};
+    use vision::Motion;
+
     use super::*;
-    use crate::motion::tests::{blob, grey};
-    use crate::motion::Motion;
 
     const FRAME: f32 = 1.0 / 30.0;
 

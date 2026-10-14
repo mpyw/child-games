@@ -34,7 +34,7 @@ song 開始 ─→ ┌→ カメラの絵を1枚待つ（毎秒30枚くらい）
 
 ## 割れ方
 
-**手の形は見ない。前の絵との差だけを見る**（`motion.rs`）。2歳児はぱーで
+**手の形は見ない。前の絵との差だけを見る**（`vision::Motion`）。2歳児はぱーで
 触るとは限らず、グーでも腕でも頭でも来る。何で触っても割れるほうがいい。
 モデルも要らないので、ラズパイでも軽い。
 
@@ -150,10 +150,11 @@ cargo run --no-default-features --features window -- --game balloon-crash
 | ファイル | 中身 |
 | --- | --- |
 | `src/play.rs` | 進行。`kit::Game` の実装と、装置なしの進行のテスト |
-| `src/motion.rs` | 前の絵との差から、動いた升目を出す |
 | `src/field.rs` | 風船の出し方・浮かび方・割れ方 |
 | `src/look.rs` | 映すもの。鏡、風船、弾けた跡、お祝い |
 | `src/cue.rs` | 鳴らす素材。文字列ではなく型で指す |
 | `src/config.rs` | `[games.balloon_crash]` の型と検査 |
 | `tools/make_sounds.py` | 素材を合成する |
 | `assets/` | 素材（`make_sounds.py` の出力） |
+
+動いた升目を出すのは、共有クレートの `vision`（`vision/src/motion.rs`）。

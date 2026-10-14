@@ -7,6 +7,8 @@ edition.workspace = true
 # 見る・鳴らす・映すは kit のトレイト越しにしか触らない。
 [dependencies]
 kit.workspace = true
+# 動いた所を出す。カメラで遊ぶ遊びどうしで共有する計算。
+vision.workspace = true
 anyhow.workspace = true
 rand.workspace = true
 serde.workspace = true
