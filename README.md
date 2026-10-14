@@ -1,4 +1,4 @@
-# donna-iro
+# child-games
 
 テレビの前で遊ぶ、2歳児向けの声の遊びを並べたもの。起動するとメニューが出て、
 遊ぶものをリモコンで選ぶ。
@@ -9,11 +9,6 @@
 | [ふうせんタッチ](games/balloon-crash/README.md) | `balloon-crash` | テレビに鏡のように自分が映り、浮かぶ風船に手で触ると割れる。曲が終わったら割った数を出してお祝い |
 | [おさかなキャッチ！](games/fish-catch/README.md) | `fish-catch` | 池に映った自分の手で魚をつかみ、勢いよく振り上げると釣れる。フグやタコ、サメも泳ぐ。曲が終わったら釣った数を出してお祝い |
 | [たこやき くるりん！](games/takoyaki/README.md) | `takoyaki` | 焼けたたこ焼きを指でつついて裏返し、両面焼けたら振り上げて舟皿へ。曲が終わったら焼けた数を出してお祝い |
-
-> [!NOTE]
-> **`donna-iro` は2つのものを指す。** このリポジトリ全体（実行ファイル名・
-> 環境変数の接頭辞 `DONNA_IRO_`・配布先 `~/donna-iro`）と、遊びの1つ
-> （`games/donna-iro/`）。この README で単に donna-iro と書くときは前者。
 
 ## ドキュメントの地図
 
@@ -68,13 +63,13 @@
 ## 準備
 
 ```sh
-git clone --recurse-submodules git@github.com:mpyw/donna-iro.git
-cd donna-iro
+git clone --recurse-submodules git@github.com:mpyw/child-games.git
+cd child-games
 mise install                              # cmake と git-lfs（mise.toml）
 git -C games/donna-iro/assets lfs pull    # 音源を取る
 tools/fetch-model.sh                      # whisper のモデルを取る（base・141MB）
 cargo build --release
-./target/release/donna-iro
+./target/release/child-games
 ```
 
 > [!NOTE]
@@ -131,15 +126,15 @@ cargo build --release
 2. `config.toml`
 3. 環境変数
 
-**環境変数の名前はキーの位置から機械的に決まる。** 接頭辞は `DONNA_IRO_`、
+**環境変数の名前はキーの位置から機械的に決まる。** 接頭辞は `CHILD_GAMES_`、
 節とキーの区切りは `__`（2本）。キー名自体に `_` が入るので、節の区切りは
 別の記号にしてある。環境変数に `-` は使えないので、遊びの節も `_` で書く。
 
 ```sh
-DONNA_IRO_RECOGNIZE__AUDIO_CTX=512 cargo run                # recognize.audio_ctx
-DONNA_IRO_LISTEN__THRESHOLD=0.02 cargo run                  # listen.threshold
-DONNA_IRO_PATHS__MODEL=models/ggml-tiny.bin cargo run       # paths.model
-DONNA_IRO_GAMES__DONNA_IRO__INSERT_EVERY=2 cargo run        # games.donna_iro.insert_every
+CHILD_GAMES_RECOGNIZE__AUDIO_CTX=512 cargo run                # recognize.audio_ctx
+CHILD_GAMES_LISTEN__THRESHOLD=0.02 cargo run                  # listen.threshold
+CHILD_GAMES_PATHS__MODEL=models/ggml-tiny.bin cargo run       # paths.model
+CHILD_GAMES_GAMES__CHILD_GAMES__INSERT_EVERY=2 cargo run        # games.donna_iro.insert_every
 ```
 
 ## ビルドの切り替え
@@ -165,7 +160,7 @@ DONNA_IRO_GAMES__DONNA_IRO__INSERT_EVERY=2 cargo run        # games.donna_iro.in
 
 | 先 | コマンド | 詳しく |
 | --- | --- | --- |
-| macOS の `.app` | `tools/bundle-mac.sh` → `target/donna-iro.app` | 下 |
+| macOS の `.app` | `tools/bundle-mac.sh` → `target/child-games.app` | 下 |
 | ラズパイ | `tools/build-pi.sh`（組むだけ）/ `tools/build-pi.sh pi5`（ssh 先へ配る） | [`pi/README.md`](pi/README.md) |
 
 ### macOS の .app

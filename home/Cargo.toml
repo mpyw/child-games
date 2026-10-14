@@ -3,10 +3,10 @@ name = "home"
 version.workspace = true
 edition.workspace = true
 
-# 実行ファイルの名前は据え置く。tools/ の配布スクリプトとラズパイの
-# 起動設定がこの名前で叩いている。リポジトリ名を変えるときに一緒に直す。
+# 実行ファイルの名前はリポジトリの名前に合わせる。tools/ の配布スクリプトと
+# ラズパイの起動もこの名前で叩くので、変えるときは一緒に直す。
 [[bin]]
-name = "donna-iro"
+name = "child-games"
 path = "src/main.rs"
 
 [features]

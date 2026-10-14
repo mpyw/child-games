@@ -65,7 +65,7 @@ const KEYS: &[(Key, Press)] = &[
 /// 無い前提なので、本命は CEC のリモコン（`control::cec` が同じ口に流す）。
 pub fn run(rx: Receiver<Scene>, presses: Sender<Press>) -> Result<()> {
     let mut window = Window::new(
-        "donna-iro",
+        "child-games",
         W,
         H,
         WindowOptions {

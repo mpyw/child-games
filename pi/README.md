@@ -19,8 +19,8 @@
 ## 組んで配る
 
 ```sh
-tools/build-pi.sh              # 組むだけ → target/pi/donna-iro
-tools/build-pi.sh pi5          # 組んで ssh 先の ~/donna-iro へ配る
+tools/build-pi.sh              # 組むだけ → target/pi/child-games
+tools/build-pi.sh pi5          # 組んで ssh 先の ~/child-games へ配る
 tools/build-pi.sh pi5 /opt/x   # 配る先を変える
 FEATURES=whisper tools/build-pi.sh   # feature を変える
 ```
@@ -28,7 +28,7 @@ FEATURES=whisper tools/build-pi.sh   # feature を変える
 配り終えたら:
 
 ```sh
-ssh pi5 'cd donna-iro && ./donna-iro --terminal --keyboard'
+ssh pi5 'cd child-games && ./child-games --terminal --keyboard'
 ```
 
 ### 組み方
@@ -65,10 +65,10 @@ ssh pi5 'cd donna-iro && ./donna-iro --terminal --keyboard'
 
 | もの | 置き場所 | |
 | --- | --- | --- |
-| バイナリ | `~/donna-iro/donna-iro` | |
-| `config.toml` | `~/donna-iro/config.toml` | |
-| 音源 | `~/donna-iro/games/<name>/assets/` | 遊びごと、手元と同じ並び。本番が無ければ `reference/` を送る |
-| whisper のモデル | `~/donna-iro/models/` | `models/*.bin` を全部。`tiny` に落として比べるのもそのままできる |
+| バイナリ | `~/child-games/child-games` | |
+| `config.toml` | `~/child-games/config.toml` | |
+| 音源 | `~/child-games/games/<name>/assets/` | 遊びごと、手元と同じ並び。本番が無ければ `reference/` を送る |
+| whisper のモデル | `~/child-games/models/` | `models/*.bin` を全部。`tiny` に落として比べるのもそのままできる |
 | OS 側の設定 | 下の表 | |
 
 **埋め込み（`embed`）は使わない。** Pi ではバイナリの隣にファイルを置けるので、
