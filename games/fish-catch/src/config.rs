@@ -58,11 +58,11 @@ impl Config {
                 self.grab_ratio
             );
         }
-        // 測れる速さは毎秒 1440 画素まで（vision の探す幅）。それを超えると
-        // 永久に釣れない。
-        if !(50.0..=1400.0).contains(&self.swing_speed) {
+        // 測れる速さには上限がある（vision の探す幅 × カメラの枚数）。ラズパイの
+        // 毎秒13枚で 1040 画素。それを超えると永久に釣れない。
+        if !(50.0..=1000.0).contains(&self.swing_speed) {
             anyhow::bail!(
-                "{section}.swing_speed は 50〜1400 であること（いまは {}）。\
+                "{section}.swing_speed は 50〜1000 であること（いまは {}）。\
                  それより速い振り上げはカメラで測れない",
                 self.swing_speed
             );
