@@ -8,6 +8,7 @@
 | [どんないろがすき？](games/donna-iro/README.md) | `donna-iro` | 呼びかけに子どもが色名を叫ぶと、その色の続きを歌う。テレビに色を映しながら鳴らす |
 | [ふうせんタッチ](games/balloon-crash/README.md) | `balloon-crash` | テレビに鏡のように自分が映り、浮かぶ風船に手で触ると割れる。曲が終わったら割った数を出してお祝い |
 | [おさかなキャッチ！](games/fish-catch/README.md) | `fish-catch` | 池に映った自分の手で魚をつかみ、勢いよく振り上げると釣れる。フグやタコ、サメも泳ぐ。曲が終わったら釣った数を出してお祝い |
+| [たこやき くるりん！](games/takoyaki/README.md) | `takoyaki` | 焼けたたこ焼きを指でつついて裏返し、両面焼けたら振り上げて舟皿へ。曲が終わったら焼けた数を出してお祝い |
 
 > [!NOTE]
 > **`donna-iro` は2つのものを指す。** このリポジトリ全体（実行ファイル名・
@@ -24,6 +25,7 @@
 | どんないろがすき？の音源の作り方 | `games/donna-iro/assets/README.md`（private サブモジュール） |
 | ふうせんタッチの割れ方と風船の出し方 | [`games/balloon-crash/README.md`](games/balloon-crash/README.md) |
 | おさかなキャッチ！の振り上げの見分け方 | [`games/fish-catch/README.md`](games/fish-catch/README.md) |
+| たこやき くるりん！の焼け方とつつき方 | [`games/takoyaki/README.md`](games/takoyaki/README.md) |
 | 装置（マイク・whisper・カメラ・画面・リモコン）の作り | [`home/README.md`](home/README.md) |
 | ラズパイとテレビ | [`pi/README.md`](pi/README.md) |
 | 画面に出す字のフォント | [`home/fonts/README.md`](home/fonts/README.md) |
@@ -200,6 +202,7 @@ flowchart TD
         donna["donna-iro/"]
         balloon["balloon-crash/"]
         fish["fish-catch/"]
+        tako["takoyaki/"]
     end
 
     kit["kit — トレイトと図形"]
@@ -215,8 +218,10 @@ flowchart TD
     donna --> kit
     balloon --> kit
     fish --> kit
+    tako --> kit
     balloon --> vision
     fish --> vision
+    tako --> vision
     vision --> kit
 
     classDef base fill:#eee,stroke:#999,color:#333;
@@ -260,6 +265,7 @@ RUSTFMT="$(rustup which --toolchain nightly rustfmt)" cargo fmt
 | `tools/render_reference.py` | どんないろがすき？専用。MusicXML から確認用の合成音を書き出す |
 | `games/balloon-crash/tools/make_sounds.py` | ふうせんタッチの曲と効果音を合成する |
 | `games/fish-catch/tools/make_sounds.py` | おさかなキャッチ！の曲と効果音を合成する |
+| `games/takoyaki/tools/make_sounds.py` | たこやき くるりん！の曲と効果音を合成する |
 
 ## whisper のモデル
 

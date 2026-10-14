@@ -16,6 +16,8 @@ use std::time::Duration;
 use kit::{Rect, Rgb, HEIGHT, WIDTH};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+pub use vision::Seen;
+use vision::{Grip, Outcome};
 
 use crate::config::Config;
 
@@ -105,19 +107,6 @@ const DASH: f32 = 260.0;
 /// 放っておかれて出ていく速さ。**泳ぐより少し速く、逃げるより遅く。**
 /// 遅いと池が空いたままになり、速いと逃げたように見える。
 const LEAVE: f32 = 140.0;
-/// 手が入ってから「つかんだ」とみなすまで。一瞬かすっただけではつかまない。
-const GRAB: Duration = Duration::from_millis(150);
-/// 手が入ったあと、動きがこれだけ途切れたら、入っていないことにする。
-/// **手を止めても、すぐには離れたことにしない。** 見ているのは動きなので、
-/// 魚の上で手を止めると動きが消える。
-const LINGER: Duration = Duration::from_millis(400);
-/// つかんだまま振り上げないと、これで逃げる。
-const HOLD: Duration = Duration::from_secs(5);
-/// 振り上げを見る長さ。**この間に要る速さに届かなければ、弱いとみなして
-/// 逃がす。**
-const WINDOW: Duration = Duration::from_millis(350);
-/// これだけの速さで上へ動いたら、振り上げを始めたとみなす（`need` に対する割合）。
-const STIR: f32 = 0.35;
 /// 釣れたときの絵の長さ。魚が飛んでいく。
 pub const FLIGHT: Duration = Duration::from_millis(1000);
 /// 逃げたときの絵の長さ。跳ねて水に戻る。
@@ -140,43 +129,16 @@ const EASE: f32 = 0.85;
 /// 釣れる速さは、`swing_speed` のこの割合より下げない。
 const FLOOR: f32 = 0.5;
 
-/// 1匹ぶんの、見えたもの。
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct Seen {
-    /// 魚のまわりで動いた割合（0〜1）。
-    pub grab: f32,
-    /// 魚の左側で、上へ動いた速さ（毎秒の画素）。向きが分からなければ 0。
-    /// **左右のどちらかが足りれば釣れる。** 両手を求めていた頃は、2歳児には
-    /// 厳しすぎた。左右に分けて見るのは、調整用の表示で強さを見せるため。
-    pub left: f32,
-    /// 魚の右側で、上へ動いた速さ。
-    pub right: f32,
-}
-
 /// 魚の様子。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum State {
-    /// 泳いでいる。`touched` は手が入った時刻と、最後に動きが見えた時刻。
-    Swim {
-        touched: Option<(Duration, Duration)>,
-    },
-    /// つかまれている。振り上げを見ていれば `swing` がある。
-    Held {
-        since: Duration,
-        swing: Option<Swing>,
-    },
+    /// 池にいる。つかまれていなければ泳ぎ、つかまれていれば止まって跳ねる。
+    /// つかむ・振り上げるの判定は `vision::Grip` に任せる。
+    Live(Grip),
     /// 釣れた。飛んでいく。
     Caught { at: Duration },
     /// 逃げた。跳ねて水に戻り、慌てて泳いでいく。
     Slipped { at: Duration },
-}
-
-/// 振り上げの途中。左右の速さの最大を覚えておく。
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Swing {
-    pub start: Duration,
-    pub left: f32,
-    pub right: f32,
 }
 
 /// 何が起きたか。音を鳴らすのに使う。
@@ -304,85 +266,51 @@ impl Pond {
         for (i, f) in self.fish.iter_mut().enumerate() {
             let s = seen(f);
             match f.state {
-                State::Swim { touched } => {
-                    // 放っておかれたら、近いほうの端へゆっくり出ていく。
-                    if !leaving && !f.leaving && touched.is_none() && now >= f.stay {
-                        f.leaving = true;
-                        leaving = true;
-                        f.facing = if f.x < WIDTH as f32 / 2.0 { -1.0 } else { 1.0 };
-                    }
-                    let speed = if now < f.cool && f.cool.saturating_sub(now) > COOL - FLEE {
-                        DASH
-                    } else if f.leaving {
-                        LEAVE
-                    } else {
-                        SWIM
-                    };
-                    f.x += f.facing * speed * dt;
-                    // 端で向きを変える。外から入ってくるときと、出ていくときは変えない。
-                    if !f.leaving
-                        && ((f.x < WIDTH as f32 * 0.1 && f.facing < 0.0)
-                            || (f.x > WIDTH as f32 * 0.9 && f.facing > 0.0))
-                    {
-                        f.facing = -f.facing;
-                    }
-                    if f.leaving && (f.x < -BODY.0 || f.x > WIDTH as f32 + BODY.0) {
-                        gone.push(i);
-                        continue;
-                    }
-                    let inside = f.x > 0.0 && f.x < WIDTH as f32;
-                    let touching = inside && now >= f.cool && s.grab >= self.grab;
-                    let touched = match (touching, touched) {
-                        (true, None) => Some((now, now)),
-                        (true, Some((first, _))) => Some((first, now)),
-                        (false, Some((first, last))) if now.saturating_sub(last) < LINGER => {
-                            Some((first, last))
+                State::Live(mut grip) => {
+                    if !grip.held() {
+                        // 放っておかれたら、近いほうの端へゆっくり出ていく。
+                        if !leaving && !f.leaving && !grip.touched() && now >= f.stay {
+                            f.leaving = true;
+                            leaving = true;
+                            f.facing = if f.x < WIDTH as f32 / 2.0 { -1.0 } else { 1.0 };
                         }
-                        (false, _) => None,
-                    };
-                    f.state = match touched {
-                        Some((first, last)) if last.saturating_sub(first) >= GRAB => {
+                        let speed = if now < f.cool && f.cool.saturating_sub(now) > COOL - FLEE {
+                            DASH
+                        } else if f.leaving {
+                            LEAVE
+                        } else {
+                            SWIM
+                        };
+                        f.x += f.facing * speed * dt;
+                        // 端で向きを変える。外から入ってくるときと、出ていくときは変えない。
+                        if !f.leaving
+                            && ((f.x < WIDTH as f32 * 0.1 && f.facing < 0.0)
+                                || (f.x > WIDTH as f32 * 0.9 && f.facing > 0.0))
+                        {
+                            f.facing = -f.facing;
+                        }
+                        if f.leaving && (f.x < -BODY.0 || f.x > WIDTH as f32 + BODY.0) {
+                            gone.push(i);
+                            continue;
+                        }
+                    }
+                    let open = f.x > 0.0 && f.x < WIDTH as f32 && now >= f.cool;
+                    f.state = match grip.step(now, s, self.grab, need, open) {
+                        Some(Outcome::Grabbed) => {
                             events.push(Event::Grab);
                             f.leaving = false;
-                            State::Held {
-                                since: now,
-                                swing: None,
-                            }
+                            State::Live(grip)
                         }
-                        _ => State::Swim { touched },
-                    };
-                }
-                State::Held { since, swing } => {
-                    let stir = need * STIR;
-                    let swing = match swing {
-                        None if s.left.max(s.right) >= stir => Some(Swing {
-                            start: now,
-                            left: s.left,
-                            right: s.right,
-                        }),
-                        Some(w) => Some(Swing {
-                            left: w.left.max(s.left),
-                            right: w.right.max(s.right),
-                            ..w
-                        }),
-                        None => None,
-                    };
-                    f.state = match swing {
-                        Some(w) if w.left.max(w.right) >= need => {
+                        Some(Outcome::Lifted) => {
                             events.push(Event::Catch);
                             State::Caught { at: now }
                         }
-                        Some(w) if now.saturating_sub(w.start) >= WINDOW => {
+                        Some(Outcome::Slipped) => {
                             events.push(Event::Slip);
                             slipped += 1;
                             State::Slipped { at: now }
                         }
-                        None if now.saturating_sub(since) >= HOLD => {
-                            events.push(Event::Slip);
-                            slipped += 1;
-                            State::Slipped { at: now }
-                        }
-                        _ => State::Held { since, swing },
+                        None => State::Live(grip),
                     };
                 }
                 State::Caught { at } => {
@@ -396,7 +324,7 @@ impl Pond {
                         f.facing = if f.x < WIDTH as f32 / 2.0 { -1.0 } else { 1.0 };
                         f.cool = now + COOL;
                         f.stay = stay();
-                        f.state = State::Swim { touched: None };
+                        f.state = State::Live(Grip::default());
                     }
                 }
             }
@@ -450,7 +378,7 @@ impl Pond {
             y,
             look,
             facing: if from_left { 1.0 } else { -1.0 },
-            state: State::Swim { touched: None },
+            state: State::Live(Grip::default()),
             cool: Duration::ZERO,
             stay: now + Duration::from_secs_f32(self.rng.gen_range(STAY.0..STAY.1)),
             leaving: false,
@@ -486,7 +414,7 @@ impl Pond {
     pub fn poke(&mut self, now: Duration, x: i32, y: i32) -> bool {
         let (x, y) = (x as f32, y as f32);
         let hit = self.fish.iter_mut().find(|f| {
-            matches!(f.state, State::Swim { .. } | State::Held { .. })
+            matches!(f.state, State::Live(_))
                 && (f.x - x).abs() < BODY.0 * 0.7
                 && (f.y - y).abs() < BODY.1 * 1.2
         });
@@ -539,7 +467,7 @@ mod tests {
         };
         let (t, ev) = run(p, t, 0.3, touch);
         assert_eq!(ev, [Event::Grab], "つかめていない");
-        assert!(matches!(p.fish()[0].state, State::Held { .. }));
+        assert!(matches!(p.fish()[0].state, State::Live(g) if g.held()));
         t
     }
 

@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use kit::{Devices, Ended, Press, Rect, Scene, Shape};
-use vision::{Flow, Flowed, Region};
+use vision::{Flow, Flowed};
 
 use crate::config::Config;
 use crate::cue::Cue;
@@ -27,26 +27,9 @@ use crate::pond::{Creature, Event, Fish, Pond, Seen};
 /// お祝いの間に画面を描き直す間隔。カメラを見ないので自分で刻む。
 const TICK: Duration = Duration::from_millis(33);
 
-/// 向きが分かった升目がこれより少なければ、振り上げは無かったことにする。
-/// 1つ2つの升目は、カメラのざらつきでも向きを持つ。
-const MIN_VECTORS: usize = 6;
-
 /// 魚1匹ぶんの、見えたもの。`dt` は前の絵からの秒数。
 fn seen(flowed: &Flowed, f: &Fish, dt: f32) -> Seen {
-    let speed = |r: Region| {
-        if r.vectors >= MIN_VECTORS {
-            r.up / dt
-        } else {
-            0.0
-        }
-    };
-    let (x, y, r) = f.reach();
-    let (left, right) = f.zones();
-    Seen {
-        grab: flowed.ratio_in(x, y, r),
-        left: speed(flowed.region(left)),
-        right: speed(flowed.region(right)),
-    }
+    Seen::look(flowed, f.reach(), f.zones(), dt)
 }
 
 pub struct FishCatch {
