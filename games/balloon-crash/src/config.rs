@@ -15,6 +15,8 @@ pub struct Config {
     pub threshold: u8,
     /// 風船の中で、これだけの割合が動いたら割る（0〜1）。
     pub touch_ratio: f32,
+    /// 動いた所に小さな点を出す。しきい値を決めるとき用。
+    pub show_motion: bool,
 }
 
 impl Default for Config {
@@ -23,6 +25,7 @@ impl Default for Config {
             max_balloons: 3,
             threshold: 28,
             touch_ratio: 0.2,
+            show_motion: false,
         }
     }
 }

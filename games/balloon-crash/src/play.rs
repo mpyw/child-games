@@ -86,7 +86,13 @@ impl BalloonCrash {
 
             field.step(now, now.saturating_sub(last).as_secs_f32());
             last = now;
-            dev.screen.show(look::playing(&mirror, &field, &moved, now));
+            dev.screen.show(look::playing(
+                &mirror,
+                &field,
+                &moved,
+                now,
+                self.cfg.show_motion,
+            ));
         }
 
         self.popped = field.popped().to_vec();

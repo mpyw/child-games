@@ -179,6 +179,10 @@ threshold = 28
 #   DONNA_IRO_GAMES__BALLOON_CRASH__TOUCH_RATIO
 touch_ratio = 0.2
 
+# 動いた所に小さな点を出す。しきい値を決めるときに使う。
+#   DONNA_IRO_GAMES__BALLOON_CRASH__SHOW_MOTION
+show_motion = false
+
 
 [games.fish_catch]
 # おさかなキャッチ！
@@ -239,6 +243,6 @@ grab_ratio = 0.05
 #   DONNA_IRO_GAMES__TAKOYAKI__SWING_SPEED
 swing_speed = 380.0
 
-# 動きの向き（上は緑、下は赤）と、振り上げの強さの棒を画面に出す。
+# 動いた所の点、動きの向き（上は緑、下は赤）、振り上げの強さの棒を画面に出す。
 #   DONNA_IRO_GAMES__TAKOYAKI__SHOW_MOTION
 show_motion = false

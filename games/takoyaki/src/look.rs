@@ -74,16 +74,17 @@ pub fn playing(
     for h in plate.holes() {
         shapes.extend(ball_in_hole(h, now));
     }
-    // **動いた所に小さな光を出す。** 自分の指がどこにあるか見える。
-    for (x, y) in flowed.spots() {
-        shapes.push(Shape::Circle {
-            x,
-            y,
-            r: 3,
-            fill: (255, 255, 220),
-        });
-    }
+    // **動いた所の点は調整用だけ。** 遊んでいる子どもには、鏡に映った自分が
+    // 見えれば足りる。点が散るとたこ焼きが見づらい。
     if motion {
+        for (x, y) in flowed.spots() {
+            shapes.push(Shape::Circle {
+                x,
+                y,
+                r: 3,
+                fill: (255, 255, 220),
+            });
+        }
         shapes.extend(debug(flowed, plate));
     }
     Scene {
