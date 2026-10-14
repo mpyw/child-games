@@ -15,17 +15,20 @@ use crate::field::{Field, BURST, COLORS};
 /// 暗くしすぎると自分が見えず、どこを触ればいいか分からない。
 const MIRROR: f32 = 0.55;
 
-/// 遊んでいる間の場面。
-pub fn playing(mirror: &Image, field: &Field, moved: &Moved, now: Duration) -> Scene {
+/// 遊んでいる間の場面。`motion` が真なら、動いた所に小さな点を出す（調整用）。
+pub fn playing(mirror: &Image, field: &Field, moved: &Moved, now: Duration, motion: bool) -> Scene {
     let mut shapes = Vec::new();
-    // **動いた所に小さな光を出す。** 自分が触っていることが見える。
-    for (x, y) in moved.spots() {
-        shapes.push(Shape::Circle {
-            x,
-            y,
-            r: 4,
-            fill: (255, 255, 230),
-        });
+    // **動いた所の点は調整用だけ。** 遊んでいる子どもには、鏡に映った自分が
+    // 見えれば足りる。点が散ると風船が見づらい。
+    if motion {
+        for (x, y) in moved.spots() {
+            shapes.push(Shape::Circle {
+                x,
+                y,
+                r: 4,
+                fill: (255, 255, 230),
+            });
+        }
     }
     let r = field.radius(now);
     for b in field.balloons() {
