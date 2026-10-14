@@ -172,8 +172,11 @@ impl Field {
     }
 
     /// 動いた所に重なった風船を割る。割った数を返す。
+    ///
+    /// **見る丸は風船より一回り大きい。** 2歳児の手は風船の縁をかすめる
+    /// くらいで止まる。そこで割れないと、届いたのに無視されたことになる。
     pub fn touch(&mut self, now: Duration, moved: &Moved) -> usize {
-        let r = self.radius(now);
+        let r = self.radius(now) * 1.2;
         let hit: Vec<usize> = (0..self.balloons.len())
             .filter(|&i| {
                 let b = &self.balloons[i];

@@ -1,7 +1,7 @@
 //! つかんで、振り上げる。
 //!
 //! ```text
-//! 空いている ─手が入った（0.15秒）─→ つかまれる ─強く振り上げた─→ 持ち上がった
+//! 空いている ─手が入った（0.1秒）─→ つかまれる ─強く振り上げた─→ 持ち上がった
 //!     ↑                                 │
 //!     └── 弱い / 振り上げない（5秒）── 逃げた ←┘
 //! ```
@@ -20,7 +20,7 @@ use kit::Rect;
 use crate::{Flowed, Region};
 
 /// 手が入ってから「つかんだ」とみなすまで。一瞬かすっただけではつかまない。
-const GRAB: Duration = Duration::from_millis(150);
+const GRAB: Duration = Duration::from_millis(100);
 /// 手が入ったあと、動きがこれだけ途切れたら、入っていないことにする。
 /// **手を止めても、すぐには離れたことにしない。** 見ているのは動きなので、
 /// 手を止めると動きが消える。
@@ -29,7 +29,7 @@ const LINGER: Duration = Duration::from_millis(400);
 const HOLD: Duration = Duration::from_secs(5);
 /// 振り上げを見る長さ。**この間に要る速さに届かなければ、弱いとみなして
 /// 逃がす。**
-const WINDOW: Duration = Duration::from_millis(350);
+const WINDOW: Duration = Duration::from_millis(500);
 /// これだけの速さで上へ動いたら、振り上げを始めたとみなす（要る速さに対する割合）。
 const STIR: f32 = 0.35;
 /// 向きが分かった升目がこれより少なければ、振り上げは無かったことにする。
@@ -57,7 +57,7 @@ impl Seen {
         let dt = dt.max(1.0 / 60.0);
         let speed = |r: Region| {
             if r.vectors >= MIN_VECTORS {
-                r.up / dt
+                r.rising / dt
             } else {
                 0.0
             }
@@ -270,8 +270,9 @@ mod tests {
             left: 200.0,
             right: 200.0,
         };
-        let (_, ev) = run(&mut g, t, 0.5, weak);
-        assert_eq!(ev, [Outcome::Slipped]);
+        let (_, ev) = run(&mut g, t, 0.7, weak);
+        // 手を入れたままなので、逃げたあとまたつかむ。止めるのは呼び出し側。
+        assert_eq!(ev.first(), Some(&Outcome::Slipped));
     }
 
     #[test]

@@ -23,8 +23,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             max_balloons: 3,
-            threshold: 28,
-            touch_ratio: 0.2,
+            threshold: 16,
+            touch_ratio: 0.1,
             show_motion: false,
         }
     }

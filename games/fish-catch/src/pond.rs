@@ -188,7 +188,7 @@ pub struct Pond {
 impl Fish {
     /// つかんだかを見る丸。体より一回り大きい。
     pub fn reach(&self) -> (f32, f32, f32) {
-        (self.x, self.y, BODY.0 * 0.65)
+        (self.x, self.y, BODY.0 * 0.8)
     }
 
     /// 振り上げを見る、左と右の範囲。**魚の上まで伸ばす。** 振り上げた手は
@@ -623,7 +623,7 @@ mod tests {
     fn a_weak_swing_slips() {
         let mut p = pond();
         let t = held(&mut p);
-        let (_, ev) = run(&mut p, t, 0.5, both(250.0));
+        let (_, ev) = run(&mut p, t, 0.7, both(250.0));
         assert_eq!(ev, [Event::Slip]);
     }
 
@@ -647,7 +647,7 @@ mod tests {
     fn a_slipped_fish_cannot_be_grabbed_right_away() {
         let mut p = pond();
         let t = held(&mut p);
-        let (t, _) = run(&mut p, t, 0.5, both(250.0));
+        let (t, _) = run(&mut p, t, 0.7, both(250.0));
         let (t, ev) = run(&mut p, t, 1.2, both(0.0));
         assert!(ev.is_empty(), "逃げた直後につかまった: {ev:?}");
         let (_, ev) = run(&mut p, t, 2.0, both(0.0));
@@ -662,7 +662,7 @@ mod tests {
         let mut t = held(&mut p);
         for _ in 0..3 {
             let weak = both(p.need() * 0.4);
-            let (t2, ev) = run(&mut p, t, 0.5, weak);
+            let (t2, ev) = run(&mut p, t, 0.7, weak);
             assert_eq!(ev, [Event::Slip]);
             let (t2, _) = run(&mut p, t2, 2.5, Seen::default());
             let touch = Seen {

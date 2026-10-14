@@ -29,9 +29,9 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             max_fish: 3,
-            threshold: 24,
-            grab_ratio: 0.05,
-            swing_speed: 420.0,
+            threshold: 16,
+            grab_ratio: 0.04,
+            swing_speed: 300.0,
             show_motion: false,
         }
     }

@@ -534,7 +534,7 @@ mod tests {
             left: 150.0,
             right: 150.0,
         };
-        let (t, ev) = run_at(&mut p, t, 0.5, only(0, weak));
+        let (t, ev) = run_at(&mut p, t, 0.7, only(0, weak));
         assert_eq!(ev, [Event::Slip]);
         assert!(p.need() < full);
         let (t, _) = run(&mut p, t, 0.5, Seen::default());

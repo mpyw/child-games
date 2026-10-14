@@ -338,9 +338,12 @@ mod tests {
     }
 
     /// ゆっくり持ち上げると逃げられる。カメラの絵から通しで。
+    ///
+    /// 毎秒30枚だと、1枚のずれが1升（8 画素）に満たない動きは速めに出る
+    /// （毎秒 200 画素が 250 ほどに見える）。だから釣れる速さより十分遅くする。
     #[test]
     fn a_slow_lift_slips_through_the_camera() {
-        let ev = act(lift(200.0, 200.0));
+        let ev = act(lift(120.0, 120.0));
         assert!(ev.contains(&Event::Slip), "逃げていない: {ev:?}");
     }
 
