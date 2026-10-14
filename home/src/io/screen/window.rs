@@ -171,6 +171,7 @@ fn paint(buf: &mut [u32], scene: &Scene) {
             Shape::Circle { x, y, r, fill } => circle(buf, x, y, r, fill),
             Shape::RoundRect { rect, r, fill } => round_rect(buf, rect, r, fill),
             Shape::Triangle { points, fill } => triangle(buf, points, fill),
+            Shape::Sphere { x, y, r, fill, cap } => sphere(buf, x, y, r, fill, cap),
             Shape::Text {
                 x,
                 y,
@@ -238,6 +239,61 @@ fn round_rect(buf: &mut [u32], rect: Rect, r: i32, c: Rgb) {
                 continue;
             }
             buf[y as usize * W + x as usize] = fill;
+        }
+    }
+}
+
+/// 光の向き（左上の手前から）。長さは1。
+const LIGHT: (f32, f32, f32) = (-0.45, -0.55, 0.70);
+
+/// 光の当たった球。画素ごとに面の向きを出して、明るさを決める。
+///
+/// - 暗い所でも真っ黒にはしない（環境光）
+/// - 光に向いた所ほど明るい（拡散）
+/// - 光と目のちょうど間を向いた所に、白いてかり（鏡面）
+/// - 縁は1画素ぶんぼかして、背景に混ぜる（ぎざつかない）
+///
+/// `cap` の境目も同じくぼかす。くっきり分けると、焼けた面の縁に段が見える。
+fn sphere(buf: &mut [u32], cx: i32, cy: i32, r: i32, base: Rgb, cap: Option<kit::Cap>) {
+    if r <= 0 {
+        return;
+    }
+    let rf = r as f32;
+    // てかりの向き。光と目（手前）の中間。
+    let half = {
+        let (x, y, z) = (LIGHT.0, LIGHT.1, LIGHT.2 + 1.0);
+        let n = (x * x + y * y + z * z).sqrt();
+        (x / n, y / n, z / n)
+    };
+    for y in (cy - r).max(0)..(cy + r + 1).min(HEIGHT) {
+        for x in (cx - r).max(0)..(cx + r + 1).min(WIDTH) {
+            let dx = (x as f32 + 0.5 - cx as f32) / rf;
+            let dy = (y as f32 + 0.5 - cy as f32) / rf;
+            let d2 = dx * dx + dy * dy;
+            if d2 > 1.0 {
+                continue;
+            }
+            let dz = (1.0 - d2).sqrt();
+            let mut c = base;
+            if let Some(cap) = cap {
+                let (tx, ty, tz) = cap.toward;
+                let dot = dx * tx + dy * ty + dz * tz;
+                // 境目の幅。小さい球ほど相対的に広く取る。
+                let edge = (2.5 / rf).max(0.04);
+                let k = ((dot - (1.0 - cap.size)) / edge + 0.5).clamp(0.0, 1.0);
+                c = mix(base, cap.fill, k);
+            }
+            let diffuse = (dx * LIGHT.0 + dy * LIGHT.1 + dz * LIGHT.2).max(0.0);
+            let shade = 0.38 + 0.72 * diffuse;
+            let spec = (dx * half.0 + dy * half.1 + dz * half.2).max(0.0).powi(28) * 0.45;
+            let lit = |v: u8| (v as f32 * shade + 255.0 * spec).clamp(0.0, 255.0) as u8;
+            let lit = (lit(c.0), lit(c.1), lit(c.2));
+            // 縁をぼかす。球の外周から1画素の幅で背景に混ぜる。
+            let rim = ((1.0 - d2.sqrt()) * rf).clamp(0.0, 1.0);
+            let i = y as usize * W + x as usize;
+            let under = buf[i];
+            let dst = ((under >> 16) as u8, (under >> 8) as u8, under as u8);
+            buf[i] = rgb(mix(dst, lit, rim));
         }
     }
 }
@@ -390,6 +446,31 @@ mod tests {
 
     /// **画面に出す字が、全部フォントに入っていること。** 入っていない字は
     /// 何も描かれず、落ちもしないので、目で見るまで気づけない。
+    /// **球は左上が明るく、右下が暗い。** 塗った面は、向けた側にだけ出る。
+    #[test]
+    fn spheres_are_lit_from_the_upper_left() {
+        let mut buf = vec![0u32; W * H];
+        sphere(&mut buf, 300, 300, 100, (200, 120, 60), None);
+        let lum = |x: usize, y: usize| {
+            let v = buf[y * W + x];
+            ((v >> 16) & 255) + ((v >> 8) & 255) + (v & 255)
+        };
+        assert!(lum(250, 250) > lum(350, 350), "光の向きが逆");
+        assert_eq!(buf[50 * W + 50], 0, "球の外を塗った");
+
+        // 手前を向けた面は、真ん中に出て、縁には出ない。
+        let mut buf = vec![0u32; W * H];
+        let cap = kit::Cap {
+            fill: (0, 0, 255),
+            toward: (0.0, 0.0, 1.0),
+            size: 0.5,
+        };
+        sphere(&mut buf, 300, 300, 100, (255, 0, 0), Some(cap));
+        let blue = |x: usize, y: usize| buf[y * W + x] & 255 > (buf[y * W + x] >> 16) & 255;
+        assert!(blue(300, 300), "向けた面が出ていない");
+        assert!(!blue(300, 205), "縁まで塗った");
+    }
+
     /// 三角形は内側だけを塗る。頂点の回り方によらない。画面の外にはみ出しても落ちない。
     #[test]
     fn triangles_fill_inside_either_way_round() {

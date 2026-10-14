@@ -67,6 +67,19 @@ pub enum Shape {
     Circle { x: i32, y: i32, r: i32, fill: Rgb },
     /// 角の丸い長方形。
     RoundRect { rect: Rect, r: i32, fill: Rgb },
+    /// 光の当たった球。左上から光が当たり、右下が暗くなる。てかりも付く。
+    ///
+    /// **単色の丸では球に見えない。** たこ焼きのように転がすものは、明るさが
+    /// 面の向きで変わらないと、平たい円盤が回っているように見える。
+    ///
+    /// `cap` があれば、球の一部をその色で塗る（焼けた面など）。
+    Sphere {
+        x: i32,
+        y: i32,
+        r: i32,
+        fill: Rgb,
+        cap: Option<Cap>,
+    },
     /// 塗った三角形。3つの頂点はどちら回りでもよい。縁は付かない。
     ///
     /// 魚の尾やサメの背びれのような、尖ったものを描くため。丸を積んで
@@ -92,6 +105,18 @@ pub enum Shape {
     },
 }
 
+/// 球の一部を別の色で塗る。
+///
+/// `toward` の向き（画面の右が x、下が y、手前が z）を中心に、面の向きとの
+/// 内積が `1 - size` より大きい所を塗る。`size` が 0 なら塗らず、1 なら半球、
+/// 2 なら全部。`toward` を回せば、塗った面が球の上を転がる。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Cap {
+    pub fill: Rgb,
+    pub toward: (f32, f32, f32),
+    pub size: f32,
+}
+
 impl Shape {
     /// 色を `f` 倍する。「もう1回」の画面で遊びの絵を暗く敷くため。
     pub fn shaded(self, f: f32) -> Shape {
@@ -114,6 +139,16 @@ impl Shape {
             Shape::Triangle { points, fill } => Shape::Triangle {
                 points,
                 fill: g(fill),
+            },
+            Shape::Sphere { x, y, r, fill, cap } => Shape::Sphere {
+                x,
+                y,
+                r,
+                fill: g(fill),
+                cap: cap.map(|c| Cap {
+                    fill: g(c.fill),
+                    ..c
+                }),
             },
             Shape::Text {
                 x,
