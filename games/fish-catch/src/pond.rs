@@ -364,7 +364,8 @@ impl Pond {
             .map(|i| (i, true))
             .chain(gone.into_iter().map(|i| (i, false)))
             .collect();
-        out.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+        // 後ろから消す。前から消すと、残りの位置がずれる。
+        out.sort_unstable_by_key(|&(i, _)| std::cmp::Reverse(i));
         for (i, caught) in out {
             let f = self.fish.remove(i);
             if caught {
